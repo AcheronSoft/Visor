@@ -5,6 +5,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
+	<EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+    <CompilerGeneratedFilesOutputPath>Generated</CompilerGeneratedFilesOutputPath>
   </PropertyGroup>
 
   <ItemGroup>
@@ -21,6 +23,14 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Visor.Core\Visor.Core.csproj" />
     <ProjectReference Include="..\..\src\Visor.SqlServer\Visor.SqlServer.csproj" />
+	<ProjectReference Include="..\..\src\Visor.Generators\Visor.Generators.csproj" 
+                      OutputItemType="Analyzer" 
+                      ReferenceOutputAssembly="false" />
   </ItemGroup>
+  
+<ItemGroup>
+    <Compile Remove="Generated\**" />
+    <None Include="Generated\**" />
+</ItemGroup>
 
 </Project>
