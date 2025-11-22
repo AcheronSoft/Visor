@@ -160,4 +160,4 @@ Visor is a **"White Box"**.
 Distributed under the MIT License. See `LICENSE` for more information.
 
 ---
-*Created by [Your Name] & Gemini (AI Architecture Partner).*
+*Created by Sergey Sorokin.*
