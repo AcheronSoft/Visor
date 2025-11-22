@@ -1,0 +1,21 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Visor.Abstractions\Visor.Abstractions.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+	<TargetFramework>net10.0</TargetFramework>
+    <LangVersion>14.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TieredPGO>true</TieredPGO>
+  </PropertyGroup>
+  
+  <ItemGroup>
+    <ProjectReference Include="..\Visor.Generators\Visor.Generators.csproj" 
+                      OutputItemType="Analyzer" 
+                      ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+</Project>
