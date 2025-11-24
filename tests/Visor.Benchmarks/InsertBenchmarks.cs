@@ -14,7 +14,7 @@ public class InsertBenchmarks
     private const string ConnString = "Server=localhost,1433;Database=VisorTestDb;User Id=sa;Password=VisorStrongPass123!;TrustServerCertificate=True;";
     private const int RowCount = 10_000; // Number of records to insert.
 
-    private List<UserItemDto> _data = null!;
+    private List<UserTvp> _data = null!;
     private IVisorConnectionFactory _visorFactory = null!;
     private IBenchmarkRepo _visorRepo = null!;
 
@@ -22,10 +22,10 @@ public class InsertBenchmarks
     public void Setup()
     {
         // 1. Generate in-memory data.
-        _data = new List<UserItemDto>(RowCount);
+        _data = new List<UserTvp>(RowCount);
         for (int i = 0; i < RowCount; i++)
         {
-            _data.Add(new UserItemDto { Name = $"User {Guid.NewGuid()}" });
+            _data.Add(new UserTvp { Name = $"User {Guid.NewGuid()}" });
         }
 
         // 2. Initialize Visor components.

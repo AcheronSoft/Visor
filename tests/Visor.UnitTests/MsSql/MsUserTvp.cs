@@ -1,12 +1,12 @@
 ﻿using Visor.Abstractions.Attributes;
 using Visor.Abstractions.Enums;
 
-namespace Visor.IntegrationTests.MsSql.Stabs;
+namespace Visor.UnitTests.MsSql;
 
 [VisorTable("dbo.UserListType")]
 public class MsUserTvp
 {
-    [VisorColumn(0, VisorDbType.Int32)]
+    [VisorColumn(0)]
     public int Id { get; set; }
 
     [VisorColumn(1, VisorDbType.String, Size = 100)]

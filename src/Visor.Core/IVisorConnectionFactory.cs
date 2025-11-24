@@ -6,11 +6,11 @@
 public interface IVisorConnectionFactory
 {
     /// <summary>
-    /// Opens a database connection and returns a lease object that manages its lifetime.
+    /// Opens a database connection and returns a session object that manages its lifetime.
     /// </summary>
     /// <param name="cancellationToken">A token to cancel the asynchronous operation.</param>
-    /// <returns>A task that represents the asynchronous operation, yielding a <see cref="VisorDbLease"/>.</returns>
-    Task<VisorDbLease> OpenAsync(CancellationToken cancellationToken = default);
+    /// <returns>A task that represents the asynchronous operation, yielding a <see cref="VisorSession"/>.</returns>
+    Task<VisorSession> OpenAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Begins a new database transaction.

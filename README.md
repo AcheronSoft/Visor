@@ -12,7 +12,7 @@
 **Visor** is designed to solve the "Enterprise Gap" in .NET data access:
 * **Dapper** is fast but type-unsafe and requires boilerplate.
 * **EF Core** is convenient but heavy and slow for bulk operations.
-* **Visor** uses **Source Generators** to write zero-allocation ADO.NET code for you at compile time.
+* **Visor** uses **Source Generators** to write zero-allocation ADO.NET code for you at compile time. Visor automates TVP boilerplate that you usually write manually.
 
 ---
 
@@ -73,18 +73,16 @@ public interface IUserRepository
 ```
 
 ### 2. Define your DTOs
-Use `[VisorMsSqlColumn]` for strict SQL type mapping.
+Use `[VisorColumn]` with the universal `VisorDbType` enum. It automatically maps to `SqlDbType.Int` in MSSQL context.
 
 ```csharp
-using Visor.SqlServer; // Provider-specific attributes
-
 [VisorTable("dbo.UserListType")] // Matches SQL User-Defined Type
 public class UserItemDto
 {
-    [VisorMsSqlColumn(0, System.Data.SqlDbType.Int)]
+    [VisorColumn(0, VisorDbType.Int32)]
     public int Id { get; set; }
 
-    [VisorMsSqlColumn(1, System.Data.SqlDbType.NVarChar, 100)]
+    [VisorColumn(1, VisorDbType.String, Size = 100)]
     public string Name { get; set; }
 }
 ```
@@ -111,12 +109,12 @@ public class MyService(IUserRepository repo)
 
 ---
 
-## 🐘 PostgreSQL Support
+## 🐘 Quick Start (PostgreSQL)
 
 Visor fully supports PostgreSQL via `Npgsql`. It maps `List<T>` parameters to PostgreSQL Arrays/Composite Types automatically.
 
 ### 1. Define Interface
-Specify the provider in the attribute:
+Specify the provider in the attribute.
 
 ```csharp
 [Visor(VisorProvider.PostgreSql)] // <--- Switch to Postgres
@@ -145,16 +143,18 @@ services.AddScoped<IVisorConnectionFactory>(sp =>
 ```
 
 ### 3. Define DTO
-Use `[VisorColumn]` with `Name` property to map C# `PascalCase` to Postgres `snake_case`. Types are inferred automatically.
+Use `[VisorColumn]` with `Name` property to map C# `PascalCase` to Postgres `snake_case`. Types are inferred automatically or mapped from `VisorDbType`.
 
 ```csharp
 [VisorTable("user_list_type")]
 public class PgUserItem
 {
+    // Use 'Name' to map to lowercase Postgres columns
     [VisorColumn(0, Name = "id")] 
     public int Id { get; set; }
 
-    [VisorColumn(1, Name = "user_name")]
+    // VisorDbType.String maps to 'text' in Postgres
+    [VisorColumn(1, VisorDbType.String, Name = "user_name")]
     public string UserName { get; set; }
 }
 ```

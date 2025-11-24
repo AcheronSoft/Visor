@@ -1,7 +1,6 @@
-﻿using Visor.Abstractions;
-using Visor.Abstractions.Attributes;
+﻿using Visor.Abstractions.Attributes;
 
-namespace Visor.UnitTests;
+namespace Visor.UnitTests.MsSql;
 
 [Visor]
 public interface IMyFirstRepo

@@ -1,6 +1,6 @@
-﻿namespace Visor.UnitTests;
+﻿namespace Visor.UnitTests.MsSql;
 
-public class UserDto
+public class User
 {
     public int Id { get; set; }
     public string Name { get; set; } = "";
