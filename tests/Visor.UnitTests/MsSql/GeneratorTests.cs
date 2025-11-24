@@ -1,20 +1,19 @@
-﻿using System.Data.Common;
-using Visor.Core;
+﻿using Visor.Core;
 
-namespace Visor.UnitTests
+namespace Visor.UnitTests.MsSql
 {
     // A mock implementation of the connection factory for testing purposes.
     public class FakeConnectionFactory : IVisorConnectionFactory
     {
-        // Returns a lease for a fake connection.
-        public Task<VisorDbLease> OpenAsync(CancellationToken cancellationToken = default)
+        // Returns a session for a fake connection.
+        public Task<VisorSession> OpenAsync(CancellationToken cancellationToken = default)
         {
             Console.WriteLine("Fake Connection Lease Acquired!");
             
-            // Return a lease struct.
+            // Return a session struct.
             // Pass null for the connection as this is a unit test and no database is involved.
             // shouldDispose: true simulates a new connection.
-            return Task.FromResult(new VisorDbLease(null!, null, shouldDispose: true)); 
+            return Task.FromResult(new VisorSession(null!, null, shouldDispose: true)); 
         }
 
         // Stubs for transaction management.

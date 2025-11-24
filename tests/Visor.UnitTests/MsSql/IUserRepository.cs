@@ -1,6 +1,6 @@
 ﻿using Visor.Abstractions.Attributes;
 
-namespace Visor.UnitTests;
+namespace Visor.UnitTests.MsSql;
 
 [Visor]
 public interface IUserRepository
@@ -11,13 +11,13 @@ public interface IUserRepository
 
     // 2. Single DTO return type.
     [Endpoint("sp_GetUserById")]
-    Task<UserDto> GetUserAsync(int id);
+    Task<User> GetUserAsync(int id);
 
     // 3. List of DTOs return type.
     [Endpoint("sp_GetAllUsers")]
-    Task<List<UserDto>> GetAllUsersAsync(bool onlyActive);
+    Task<List<User>> GetAllUsersAsync(bool onlyActive);
     
     // 4. Table-Valued Parameter for bulk operations.
     [Endpoint("sp_ImportUsers")] 
-    Task ImportUsers(List<UserItemDto> users);
+    Task ImportUsers(List<MsUserTvp> users);
 }

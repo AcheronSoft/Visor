@@ -6,10 +6,10 @@ namespace Visor.Core;
 /// A wrapper for a database connection that manages its lifetime.
 /// </summary>
 /// <remarks>
-/// This struct determines whether the underlying connection should be disposed when the lease ends,
+/// This struct determines whether the underlying connection should be disposed when the session ends,
 /// which is crucial for managing connections within transactions.
 /// </remarks>
-public readonly struct VisorDbLease(DbConnection connection, DbTransaction? transaction, bool shouldDispose) : IAsyncDisposable, IDisposable
+public readonly struct VisorSession(DbConnection connection, DbTransaction? transaction, bool shouldDispose) : IAsyncDisposable, IDisposable
 {
     /// <summary>
     /// Gets the underlying database connection.

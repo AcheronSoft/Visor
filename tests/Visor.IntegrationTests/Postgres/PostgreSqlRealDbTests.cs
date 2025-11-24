@@ -30,11 +30,11 @@ public class PostgreSqlRealDbTests
         // --- TEST ---
 
         // Arrange: A. Truncate the table for a clean test run.
-        using (var conn = dataSource.CreateConnection())
+        await using (var connection = dataSource.CreateConnection())
         {
-            await conn.OpenAsync();
-            using var cmd = new NpgsqlCommand("TRUNCATE TABLE users", conn);
-            await cmd.ExecuteNonQueryAsync();
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand("TRUNCATE TABLE users", connection);
+            await command.ExecuteNonQueryAsync();
         }
 
         // Act: B. Insert data using a composite type array.
@@ -52,6 +52,6 @@ public class PostgreSqlRealDbTests
             
         // Assert: D. Verify list mapping on read.
         var all = await repository.GetAll();
-        Assert.Contains(all, u => u.Name == "PgUser 1");
+        Assert.Contains(all, user => user.Name == "PgUser 1");
     }
 }

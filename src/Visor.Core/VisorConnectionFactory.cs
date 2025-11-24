@@ -39,12 +39,12 @@ public abstract partial class VisorConnectionFactory : IVisorConnectionFactory, 
 
     protected abstract DbConnection CreateConnection();
 
-    public async Task<VisorDbLease> OpenAsync(CancellationToken cancellationToken = default)
+    public async Task<VisorSession> OpenAsync(CancellationToken cancellationToken = default)
     {
         // SCENARIO 1: We are inside an active transaction.
         if (_currentTransaction != null)
         {
-            return new VisorDbLease(_transactionConnection!, _currentTransaction, shouldDispose: false);
+            return new VisorSession(_transactionConnection!, _currentTransaction, shouldDispose: false);
         }
 
         // SCENARIO 2: A regular, non-transactional query.
@@ -73,7 +73,7 @@ public abstract partial class VisorConnectionFactory : IVisorConnectionFactory, 
                 ex);
         }
 
-        return new VisorDbLease(connection, null, shouldDispose: true);
+        return new VisorSession(connection, null, shouldDispose: true);
     }
 
     public async Task BeginTransactionAsync(CancellationToken cancellationToken = default)

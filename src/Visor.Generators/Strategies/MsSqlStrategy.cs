@@ -1,254 +1,286 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using Microsoft.CodeAnalysis;
 
-namespace Visor.Generators.Strategies;
-
-internal class MsSqlStrategy : IGeneratorStrategy
+namespace Visor.Generators.Strategies
 {
-    public void GenerateUsings(StringBuilder stringBuilder)
+    internal class MsSqlStrategy : IGeneratorStrategy
     {
-        stringBuilder.AppendLine("using Microsoft.Data.SqlClient;");
-        stringBuilder.AppendLine("using Microsoft.Data.SqlClient.Server;");
-    }
+        public void GenerateUsings(StringBuilder sb)
+        {
+            sb.AppendLine("using Microsoft.Data.SqlClient;");
+            sb.AppendLine("using Microsoft.Data.SqlClient.Server;");
+            sb.AppendLine("using Visor.Abstractions;");
+        }
 
-    public void GenerateOpenConnection(StringBuilder stringBuilder, string cancellationTokenName)
-    {
-        stringBuilder.AppendLine($@"            await using var lease = await _factory.OpenAsync({cancellationTokenName});
+        public void GenerateOpenConnection(StringBuilder sb, string cancellationTokenName)
+        {
+            sb.AppendLine($@"            await using var lease = await _factory.OpenAsync({cancellationTokenName});
             using var command = lease.Connection.CreateCommand();
             command.Transaction = lease.Transaction;");
-    }
-        
-    public void GenerateCommandInit(StringBuilder stringBuilder, string procedureName, bool isVoid, IMethodSymbol method)
-    {
-        stringBuilder.AppendLine($@"
-            command.CommandText = ""{procedureName}"";
-            command.CommandType = CommandType.StoredProcedure;");
-    }
+        }
 
-    public void GenerateParameter(StringBuilder stringBuilder, IParameterSymbol parameter, string commandVariableName, HashSet<INamedTypeSymbol> tableValuedParameterCollector)
-    {
-        if (IsTableValuedParameter(parameter.Type, out var itemType, out var sqlTypeName))
+        public void GenerateCommandInit(StringBuilder sb, string procName, bool isVoid, IMethodSymbol method)
         {
-            tableValuedParameterCollector.Add(itemType!);
-            var safeItemTypeName = itemType!.Name;
+            sb.AppendLine($@"
+            command.CommandText = ""{procName}"";
+            command.CommandType = CommandType.StoredProcedure;");
+        }
 
-            stringBuilder.AppendLine($@"
-            var sqlParameter_{parameter.Name} = (Microsoft.Data.SqlClient.SqlParameter){commandVariableName}.CreateParameter();
-            sqlParameter_{parameter.Name}.ParameterName = ""@{parameter.Name}""; 
-            sqlParameter_{parameter.Name}.SqlDbType = System.Data.SqlDbType.Structured;
-            sqlParameter_{parameter.Name}.TypeName = ""{sqlTypeName}""; 
+        public void GenerateParameter(StringBuilder sb, IParameterSymbol param, string commandVariableName, HashSet<INamedTypeSymbol> tvpCollector)
+        {
+            // 1. Проверка на TVP (List<T>)
+            if (IsTvpParam(param.Type, out var itemType, out var sqlTypeName))
+            {
+                tvpCollector.Add(itemType!);
+                var safeItemTypeName = itemType!.Name;
+
+                sb.AppendLine($@"
+            var p_{param.Name} = (Microsoft.Data.SqlClient.SqlParameter){commandVariableName}.CreateParameter();
+            p_{param.Name}.ParameterName = ""{param.Name}""; 
+            p_{param.Name}.SqlDbType = System.Data.SqlDbType.Structured;
+            p_{param.Name}.TypeName = ""{sqlTypeName}""; 
             
-            if ({parameter.Name} != null)
+            if ({param.Name} != null)
             {{
-                sqlParameter_{parameter.Name}.Value = MapToSqlDataRecord_{safeItemTypeName}({parameter.Name});
+                p_{param.Name}.Value = MapToSqlDataRecord_{safeItemTypeName}({param.Name});
             }}
             else
             {{
-                sqlParameter_{parameter.Name}.Value = DBNull.Value;
+                p_{param.Name}.Value = DBNull.Value;
             }}
-            {commandVariableName}.Parameters.Add(sqlParameter_{parameter.Name});");
+            {commandVariableName}.Parameters.Add(p_{param.Name});");
+            }
+            else
+            {
+                // 2. Обычный параметр
+                var dbParamName = param.Name;
+                bool canBeNull = param.Type.IsReferenceType || 
+                                 (param.Type.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T);
+
+                var valueCode = canBeNull 
+                    ? $"(object){param.Name} ?? DBNull.Value" 
+                    : $"(object){param.Name}";
+
+                sb.AppendLine($@"
+            var p_{param.Name} = {commandVariableName}.CreateParameter();
+            p_{param.Name}.ParameterName = ""{dbParamName}"";
+            p_{param.Name}.Value = {valueCode};
+            {commandVariableName}.Parameters.Add(p_{param.Name});");
+            }
         }
-        else
+
+        public void GenerateHelpers(StringBuilder sb, HashSet<INamedTypeSymbol> tvpTypes)
         {
-            var databaseParameterName = $"@{parameter.Name}";
-            bool canBeNull = parameter.Type.IsReferenceType || 
-                             (parameter.Type.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T);
-
-            var valueCode = canBeNull 
-                ? $"(object){parameter.Name} ?? DBNull.Value" 
-                : $"(object){parameter.Name}";
-
-            stringBuilder.AppendLine($@"
-            var sqlParameter_{parameter.Name} = {commandVariableName}.CreateParameter();
-            sqlParameter_{parameter.Name}.ParameterName = ""{databaseParameterName}"";
-            sqlParameter_{parameter.Name}.Value = {valueCode};
-            {commandVariableName}.Parameters.Add(sqlParameter_{parameter.Name});");
+            foreach (var itemType in tvpTypes)
+            {
+                GenerateSqlDataRecordHelper(sb, itemType);
+            }
         }
-    }
 
-    public void GenerateHelpers(StringBuilder stringBuilder, HashSet<INamedTypeSymbol> tableValuedParameterTypes)
-    {
-        foreach (var itemType in tableValuedParameterTypes)
+        private void GenerateSqlDataRecordHelper(StringBuilder sb, INamedTypeSymbol itemType)
         {
-            GenerateSqlDataRecordHelper(stringBuilder, itemType);
-        }
-    }
+            var props = itemType.GetMembers().OfType<IPropertySymbol>()
+                .Select(p => new { Property = p, Attr = p.GetAttributes().FirstOrDefault(a => a.AttributeClass?.Name == "VisorColumnAttribute" || a.AttributeClass?.Name == "VisorColumn") })
+                .Where(x => x.Attr != null)
+                .OrderBy(x => (int)x.Attr!.ConstructorArguments[0].Value!)
+                .ToList();
 
-    private void GenerateSqlDataRecordHelper(StringBuilder stringBuilder, INamedTypeSymbol itemType)
-    {
-        var properties = itemType.GetMembers().OfType<IPropertySymbol>()
-            .Select(property => new { 
-                Property = property, 
-                ColumnAttribute = property.GetAttributes().FirstOrDefault(attribute => 
-                    attribute.AttributeClass?.Name == "VisorMsSqlColumnAttribute" || 
-                    attribute.AttributeClass?.Name == "VisorMsSqlColumn" ||
-                    attribute.AttributeClass?.Name == "VisorColumnAttribute" || 
-                    attribute.AttributeClass?.Name == "VisorColumn") 
-            })
-            .Where(x => x.ColumnAttribute != null)
-            .OrderBy(x => (int)x.ColumnAttribute!.ConstructorArguments[0].Value!) 
-            .ToList();
+            var methodName = $"MapToSqlDataRecord_{itemType.Name}";
 
-        var methodName = $"MapToSqlDataRecord_{itemType.Name}";
-
-        stringBuilder.AppendLine($@"
+            sb.AppendLine($@"
         private static System.Collections.Generic.IEnumerable<SqlDataRecord> {methodName}(System.Collections.Generic.IEnumerable<{itemType.ToDisplayString()}> rows)
         {{
-            var metadata = new SqlMetaData[]
+            var meta = new SqlMetaData[]
             {{");
 
-        foreach (var propertyInfo in properties)
-        {
-            var nameArgument = propertyInfo.ColumnAttribute!.NamedArguments.FirstOrDefault(na => na.Key == "Name");
-            var columnName = nameArgument.Value.Value?.ToString() ?? propertyInfo.Property.Name;
-
-            string sqlDbTypeEnum;
-            int size = 0;
-
-            if (propertyInfo.ColumnAttribute.AttributeClass?.Name.Contains("VisorMsSqlColumn") == true)
+            foreach (var p in props)
             {
-                var typeValue = (int)propertyInfo.ColumnAttribute.ConstructorArguments[1].Value!;
-                sqlDbTypeEnum = ((System.Data.SqlDbType)typeValue).ToString();
+                var nameArg = p.Attr!.NamedArguments.FirstOrDefault(na => na.Key == "Name");
+                var name = nameArg.Value.Value?.ToString() ?? p.Property.Name;
 
-                if (propertyInfo.ColumnAttribute.ConstructorArguments.Length > 2)
+                // Тип
+                var visorTypeInt = (int)p.Attr.ConstructorArguments[1].Value!;
+                var sqlDbTypeStr = MapVisorToSql(visorTypeInt, p.Property.Type);
+
+                // Параметры размера/точности
+                var sizeArg = p.Attr.NamedArguments.FirstOrDefault(na => na.Key == "Size");
+                var size = sizeArg.Value.Value is int s ? s : -1;
+
+                var precisionArg = p.Attr.NamedArguments.FirstOrDefault(na => na.Key == "Precision");
+                var precision = precisionArg.Value.Value is byte prec ? prec : (byte)0;
+
+                var scaleArg = p.Attr.NamedArguments.FirstOrDefault(na => na.Key == "Scale");
+                var scale = scaleArg.Value.Value is byte sc ? sc : (byte)0;
+
+                // ВЫБОР КОНСТРУКТОРА SqlMetaData
+                if (precision > 0 || scale > 0 || sqlDbTypeStr == "Decimal" || sqlDbTypeStr == "Money")
                 {
-                    size = (int)propertyInfo.ColumnAttribute.ConstructorArguments[2].Value!;
+                    // Конструктор для Decimal: (name, type, precision, scale)
+                    // Если Precision не задан, но это Decimal, ставим безопасные дефолты (например 18, 2) или 0,0
+                    sb.AppendLine($@"                new SqlMetaData(""{name}"", System.Data.SqlDbType.{sqlDbTypeStr}, {precision}, {scale}),");
+                }
+                else if (size > 0 || size == -1 || sqlDbTypeStr.Contains("Char") || sqlDbTypeStr == "VarBinary")
+                {
+                    // Конструктор для Строк/Бинарников: (name, type, size)
+                    // Если size не задан для строки, ставим Max
+                    var sizeVal = (size == 0 && sqlDbTypeStr.Contains("Char")) ? "SqlMetaData.Max" : size.ToString();
+                    sb.AppendLine($@"                new SqlMetaData(""{name}"", System.Data.SqlDbType.{sqlDbTypeStr}, {sizeVal}),");
+                }
+                else
+                {
+                    // Простой конструктор: (name, type)
+                    sb.AppendLine($@"                new SqlMetaData(""{name}"", System.Data.SqlDbType.{sqlDbTypeStr}),");
                 }
             }
-            else
-            {
-                sqlDbTypeEnum = InferMsSqlType(propertyInfo.Property.Type);
-            }
-                
-            var sizeString = (size > 0 || sqlDbTypeEnum.Contains("Char")) && size > 0 
-                ? size.ToString() 
-                : "SqlMetaData.Max";
 
-            if (size > 0 || sqlDbTypeEnum == "NVarChar" || sqlDbTypeEnum == "VarChar" || sqlDbTypeEnum == "Char" || sqlDbTypeEnum == "NChar")
-            {
-                stringBuilder.AppendLine($@"                new SqlMetaData(""{columnName}"", System.Data.SqlDbType.{sqlDbTypeEnum}, {sizeString}),");
-            }
-            else
-            {
-                stringBuilder.AppendLine($@"                new SqlMetaData(""{columnName}"", System.Data.SqlDbType.{sqlDbTypeEnum}),");
-            }
-        }
-
-        stringBuilder.AppendLine(@"            };
+            sb.AppendLine(@"            };
             
-            var record = new SqlDataRecord(metadata);
+            var record = new SqlDataRecord(meta);
             
             foreach (var row in rows)
             {");
-
-        for (int i = 0; i < properties.Count; i++)
-        {
-            var propertyInfo = properties[i];
-            var propertyName = propertyInfo.Property.Name;
-                
-            System.Data.SqlDbType dbType;
-            if (propertyInfo.ColumnAttribute!.AttributeClass?.Name.Contains("VisorMsSqlColumn") == true)
+            
+            // ... (цикл заполнения, там изменений нет, кроме проверки на null) ...
+            for (int i = 0; i < props.Count; i++)
             {
-                dbType = (System.Data.SqlDbType)(int)propertyInfo.ColumnAttribute.ConstructorArguments[1].Value!;
-            }
-            else
-            {
-                Enum.TryParse(InferMsSqlType(propertyInfo.Property.Type), out dbType);
+                var p = props[i];
+                var propName = p.Property.Name;
+                var visorTypeInt = (int)p.Attr!.ConstructorArguments[1].Value!;
+                var sqlDbTypeStr = MapVisorToSql(visorTypeInt, p.Property.Type);
+                var setMethod = GetSetMethodName(sqlDbTypeStr);
+
+                // ПРОВЕРКА NULLABLE (Берем из C# типа!)
+                if (p.Property.Type.IsReferenceType || p.Property.Type.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T)
+                {
+                     sb.AppendLine($@"                if (row.{propName} == null) record.SetDBNull({i}); else record.{setMethod}({i}, row.{propName});");
+                }
+                else
+                {
+                     sb.AppendLine($@"                record.{setMethod}({i}, row.{propName});");
+                }
             }
 
-            var setMethodName = GetSetMethodName(dbType);
-
-            if (propertyInfo.Property.Type.IsReferenceType || propertyInfo.Property.Type.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T)
-            {
-                stringBuilder.AppendLine($@"                if (row.{propertyName} == null) record.SetDBNull({i}); else record.{setMethodName}({i}, row.{propertyName});");
-            }
-            else
-            {
-                stringBuilder.AppendLine($@"                record.{setMethodName}({i}, row.{propertyName});");
-            }
-        }
-
-        stringBuilder.AppendLine(@"                yield return record;
+            sb.AppendLine(@"                yield return record;
             }
         }");
-    }
+        }
 
-    private string InferMsSqlType(ITypeSymbol type)
-    {
-        if (type is INamedTypeSymbol named && named.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T)
-            type = named.TypeArguments[0];
-
-        return type.SpecialType switch
+        // Маппинг VisorDbType (int) -> SqlDbType (String Name)
+        private string MapVisorToSql(int visorDbType, ITypeSymbol typeSymbol)
         {
-            SpecialType.System_Int32 => "Int",
-            SpecialType.System_Int64 => "BigInt",
-            SpecialType.System_Int16 => "SmallInt",
-            SpecialType.System_Byte => "TinyInt",
-            SpecialType.System_Boolean => "Bit",
-            SpecialType.System_String => "NVarChar",
-            SpecialType.System_DateTime => "DateTime",
-            SpecialType.System_Decimal => "Decimal",
-            SpecialType.System_Double => "Float",
-            SpecialType.System_Single => "Real",
-            _ => type.Name switch
+            if (visorDbType == 0) return InferMsSqlType(typeSymbol);
+
+            // Индексы соответствуют Enum VisorDbType
+            return visorDbType switch
             {
-                "Guid" => "UniqueIdentifier",
-                "DateTimeOffset" => "DateTimeOffset",
-                "TimeSpan" => "Time",
-                "Byte[]" => "VarBinary",
-                _ => "NVarChar"
-            }
-        };
-    }
+                1 => "TinyInt",     // Byte
+                2 => "TinyInt",     // SByte (Requires cast logic usually, but SqlDataRecord handles basics)
+                3 => "SmallInt",    // Int16
+                4 => "Int",         // Int32
+                5 => "BigInt",      // Int64
+                
+                // 6,7,8 - UInt (not supported directly in SQL, map to larger types manually or leave as is for implicit cast)
+                
+                9 => "Real",        // Single
+                10 => "Float",      // Double
+                11 => "Decimal",    // Decimal
+                12 => "Money",      // Money
+                13 => "SmallMoney", // SmallMoney
+                
+                14 => "Bit",        // Boolean
 
-    private string GetSetMethodName(System.Data.SqlDbType dbType)
-    {
-        return dbType switch
+                15 => "NVarChar",   // String
+                16 => "VarChar",    // AnsiString
+                17 => "NChar",      // Char
+                18 => "Char",       // AnsiChar
+                
+                19 => "Xml",        // Xml
+                20 => "NVarChar",   // Json -> String
+                
+                22 => "Date",       // Date
+                23 => "Time",       // Time
+                24 => "DateTime2",  // DateTime
+                25 => "DateTimeOffset", // DateTimeOffset
+                26 => "Timestamp",  // Timestamp
+                
+                28 => "VarBinary",  // Binary
+                
+                31 => "UniqueIdentifier", // Guid
+                
+                _ => "Variant"
+            };
+        }
+
+        private string InferMsSqlType(ITypeSymbol type)
         {
-            System.Data.SqlDbType.Int => "SetInt32",
-            System.Data.SqlDbType.BigInt => "SetInt64",
-            System.Data.SqlDbType.SmallInt => "SetInt16",
-            System.Data.SqlDbType.TinyInt => "SetByte",
-            System.Data.SqlDbType.Bit => "SetBoolean",
-                
-            System.Data.SqlDbType.NVarChar or System.Data.SqlDbType.VarChar or System.Data.SqlDbType.Char or System.Data.SqlDbType.NChar or 
-                System.Data.SqlDbType.Text or System.Data.SqlDbType.NText or System.Data.SqlDbType.Xml => "SetString",
-                
-            System.Data.SqlDbType.DateTime or System.Data.SqlDbType.SmallDateTime or System.Data.SqlDbType.Date or System.Data.SqlDbType.DateTime2 => "SetDateTime",
-            System.Data.SqlDbType.Decimal or System.Data.SqlDbType.Money or System.Data.SqlDbType.SmallMoney => "SetDecimal",
-            System.Data.SqlDbType.Float => "SetDouble",
-            System.Data.SqlDbType.Real => "SetFloat",
-            System.Data.SqlDbType.UniqueIdentifier => "SetGuid",
-            System.Data.SqlDbType.Binary or System.Data.SqlDbType.VarBinary or System.Data.SqlDbType.Image => "SetBytes",
-            _ => "SetValue"
-        };
-    }
+            if (type is INamedTypeSymbol named && named.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T)
+                type = named.TypeArguments[0];
 
-    private bool IsTableValuedParameter(ITypeSymbol type, out INamedTypeSymbol? itemType, out string? sqlTypeName)
-    {
-        itemType = null;
-        sqlTypeName = null;
-        
-        if (type is not INamedTypeSymbol namedType) 
-            return false;
-        
-        var isCollection = namedType is { IsGenericType: true, Name: "List" or "IEnumerable" or "IList" or "IReadOnlyList" };
-        
-        if (!isCollection) 
-            return false;
-        
-        itemType = namedType.TypeArguments[0] as INamedTypeSymbol;
+            return type.SpecialType switch
+            {
+                SpecialType.System_Int32 => "Int",
+                SpecialType.System_Int64 => "BigInt",
+                SpecialType.System_Int16 => "SmallInt",
+                SpecialType.System_Byte => "TinyInt",
+                SpecialType.System_Boolean => "Bit",
+                SpecialType.System_String => "NVarChar",
+                SpecialType.System_DateTime => "DateTime",
+                SpecialType.System_Decimal => "Decimal",
+                SpecialType.System_Double => "Float",
+                SpecialType.System_Single => "Real",
+                _ => type.Name switch
+                {
+                    "Guid" => "UniqueIdentifier",
+                    "DateTimeOffset" => "DateTimeOffset",
+                    "TimeSpan" => "Time",
+                    "Byte[]" => "VarBinary",
+                    _ => "NVarChar"
+                }
+            };
+        }
 
-        var tableAttribute = itemType?.GetAttributes().FirstOrDefault(a => a.AttributeClass?.Name is "VisorTableAttribute" or "VisorTable");
-        
-        if (tableAttribute == null) 
-            return false;
-        
-        sqlTypeName = tableAttribute.ConstructorArguments[0].Value?.ToString();
-        
-        return true;
+        private string GetSetMethodName(string sqlDbTypeStr)
+        {
+            // Маппинг имени типа на метод Set...
+            return sqlDbTypeStr switch
+            {
+                "Int" => "SetInt32",
+                "BigInt" => "SetInt64",
+                "SmallInt" => "SetInt16",
+                "TinyInt" => "SetByte",
+                "Bit" => "SetBoolean",
+                
+                "NVarChar" or "VarChar" or "Text" or "NText" or "Xml" or "Char" or "NChar" => "SetString",
+                
+                "DateTime" or "SmallDateTime" or "Date" or "DateTime2" => "SetDateTime",
+                "DateTimeOffset" => "SetDateTimeOffset", // Внимание: SetDateTimeOffset доступен в новых версиях
+                
+                "Decimal" or "Money" or "SmallMoney" => "SetDecimal",
+                "Float" => "SetDouble",
+                "Real" => "SetFloat",
+                "UniqueIdentifier" => "SetGuid",
+                
+                "Binary" or "VarBinary" or "Image" => "SetBytes", 
+                    
+                _ => "SetValue"
+            };
+        }
+
+        private bool IsTvpParam(ITypeSymbol type, out INamedTypeSymbol? itemType, out string? sqlTypeName)
+        {
+            itemType = null;
+            sqlTypeName = null;
+            if (type is not INamedTypeSymbol namedType) return false;
+            var isCollection = namedType.IsGenericType && (namedType.Name == "List" || namedType.Name == "IEnumerable" || namedType.Name == "IList" || namedType.Name == "IReadOnlyList");
+            if (!isCollection) return false;
+            itemType = namedType.TypeArguments[0] as INamedTypeSymbol;
+            if (itemType == null) return false;
+            var attr = itemType.GetAttributes().FirstOrDefault(a => a.AttributeClass?.Name == "VisorTableAttribute" || a.AttributeClass?.Name == "VisorTable");
+            if (attr == null) return false;
+            sqlTypeName = attr.ConstructorArguments[0].Value?.ToString();
+            return true;
+        }
     }
 }
