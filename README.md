@@ -215,6 +215,3 @@ Visor is a **"White Box"**.
 ## License
 
 Distributed under the MIT License. See `LICENSE` for more information.
-
----
-*Created by [Your Name] & Gemini (AI Architecture Partner).*
