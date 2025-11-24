@@ -12,6 +12,7 @@
   <ItemGroup>
     <PackageReference Include="coverlet.collector" Version="6.0.4" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="Npgsql" Version="10.0.0" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
   </ItemGroup>
@@ -23,9 +24,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Visor.Core\Visor.Core.csproj" />
     <ProjectReference Include="..\..\src\Visor.SqlServer\Visor.SqlServer.csproj" />
-	<ProjectReference Include="..\..\src\Visor.Generators\Visor.Generators.csproj" 
-                      OutputItemType="Analyzer" 
-                      ReferenceOutputAssembly="false" />
+	<ProjectReference Include="..\..\src\Visor.Generators\Visor.Generators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
   
 <ItemGroup>

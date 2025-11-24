@@ -39,12 +39,12 @@ namespace Visor.IntegrationTests
     }
 
     // 2. Сам тест
-    public class RealDbTests
+    public class MsSqlRealDbTests
     {
         private const string ConnString = "Server=localhost,1433;Database=VisorTestDb;User Id=sa;Password=VisorStrongPass123!;TrustServerCertificate=True;";
 
         [Fact]
-        public async Task FullFlow_Test()
+        public async Task Ms_FullFlow_Test()
         {
             // A. Подготовка
             IVisorConnectionFactory factory = new SqlServerConnectionFactory(ConnString);
