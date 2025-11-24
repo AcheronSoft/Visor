@@ -7,6 +7,7 @@
     <IncludeBuildOutput>false</IncludeBuildOutput> 
     <DevelopmentDependency>true</DevelopmentDependency>
 	<NoWarn>$(NoWarn);NU5128</NoWarn>
+    <Description>Roslyn Source Generators for Visor ORM. Analyzes your interfaces and generates zero-allocation ADO.NET code at compile time. Do not install directly if using a provider package.</Description>
   </PropertyGroup>
 
   <ItemGroup>

@@ -1,5 +1,9 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   
+  <PropertyGroup>
+	<Description>PostgreSQL provider for Visor ORM via Npgsql. Supports high-performance arrays and composite type mapping.</Description>
+  </PropertyGroup>
+  
   <ItemGroup>
     <ProjectReference Include="..\Visor.Core\Visor.Core.csproj" />
     <PackageReference Include="Npgsql" Version="10.0.0" />
