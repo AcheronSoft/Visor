@@ -32,3 +32,10 @@ BEGIN
     RETURN (SELECT COUNT(*) FROM users);
 END;
 $$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION sp_get_all_users() 
+RETURNS TABLE (id INT, name TEXT) AS $$
+BEGIN
+    RETURN QUERY SELECT u.id, u.name FROM users u;
+END;
+$$ LANGUAGE plpgsql;

@@ -3,10 +3,10 @@ using Visor.Abstractions;
 using Visor.Abstractions.Attributes;
 using Visor.SqlServer.Attributes;
 
-namespace Visor.Benchmarks;
+namespace Visor.IntegrationTests.MsSql.Stabs;
 
 [VisorTable("dbo.UserListType")]
-public class UserItemDto
+public class MsUserTvp
 {
     [VisorMsSqlColumn(0, SqlDbType.Int)]
     public int Id { get; set; }

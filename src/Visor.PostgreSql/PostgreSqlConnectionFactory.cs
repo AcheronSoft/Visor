@@ -2,13 +2,14 @@
 using Npgsql;
 using Visor.Core;
 
-namespace Visor.PostgreSql
+namespace Visor.PostgreSql;
+
+public class PostgreSqlConnectionFactory(NpgsqlDataSource dataSource) : VisorConnectionFactory(dataSource.ConnectionString)
 {
-    public class PostgreSqlConnectionFactory(NpgsqlDataSource dataSource) : VisorConnectionFactory(dataSource.ConnectionString)
+    protected override DbConnection CreateConnection()
     {
-        protected override DbConnection CreateConnection()
-        {
-            return dataSource.CreateConnection();
-        }
+        // IMPORTANT: Create the connection from the DataSource
+        // to ensure all registered type mappings (from UseVisor) are applied.
+        return dataSource.CreateConnection();
     }
 }

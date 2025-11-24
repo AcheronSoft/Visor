@@ -6,5 +6,6 @@ namespace Visor.SqlServer;
 
 public class SqlServerConnectionFactory(string connectionString) : VisorConnectionFactory(connectionString)
 {
-    protected override DbConnection CreateConnection() => new SqlConnection(); // Просто new(), строка присвоится в базовом классе
+    // The connection string will be assigned by the base class.
+    protected override DbConnection CreateConnection() => new SqlConnection();
 }
