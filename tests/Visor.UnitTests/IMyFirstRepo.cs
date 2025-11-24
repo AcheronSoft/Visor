@@ -1,4 +1,5 @@
 ﻿using Visor.Abstractions;
+using Visor.Abstractions.Attributes;
 
 namespace Visor.UnitTests;
 

@@ -14,83 +14,73 @@ namespace Visor.Generators
     {
         public void Initialize(IncrementalGeneratorInitializationContext context)
         {
-            var provider = context.SyntaxProvider
+            var interfaceDeclarations = context.SyntaxProvider
                 .CreateSyntaxProvider(
                     predicate: (node, _) => IsCandidate(node),
-                    transform: (ctx, _) => GetVisorInterface(ctx)
+                    transform: (generatorSyntaxContext, _) => GetVisorInterface(generatorSyntaxContext)
                 )
-                .Where(m => m != null);
+                .Where(symbol => symbol != null);
 
-            context.RegisterSourceOutput(provider, (spc, interfaceSymbol) =>
+            context.RegisterSourceOutput(interfaceDeclarations, (sourceProductionContext, interfaceSymbol) =>
             {
-                if (interfaceSymbol == null) return;
+                if (interfaceSymbol == null) 
+                    return;
                 
                 try 
                 {
                     var source = GenerateSource(interfaceSymbol);
-                    spc.AddSource($"{interfaceSymbol.Name}_Visor.g.cs", SourceText.From(source, Encoding.UTF8));
+                    sourceProductionContext.AddSource($"{interfaceSymbol.Name}_Visor.g.cs", SourceText.From(source, Encoding.UTF8));
                 }
                 catch (Exception ex)
                 {
-                    // Если что-то пошло не так, генерируем файл с ошибкой в комментарии, чтобы видеть в IDE
-                    var errorSource = $"// Error generating source: {ex.Message}\n// {ex.StackTrace}";
-                    spc.AddSource($"{interfaceSymbol.Name}_Error.g.cs", SourceText.From(errorSource, Encoding.UTF8));
+                    var errorSource = $"// Error: {ex.Message}\n// {ex.StackTrace}";
+                    sourceProductionContext.AddSource($"{interfaceSymbol.Name}_Error.g.cs", SourceText.From(errorSource, Encoding.UTF8));
                 }
             });
         }
 
         private string GenerateSource(INamedTypeSymbol interfaceSymbol)
         {
-            var sb = new StringBuilder();
+            var stringBuilder = new StringBuilder();
             var namespaceName = interfaceSymbol.ContainingNamespace.ToDisplayString();
             var className = GetImplementationName(interfaceSymbol);
-            var tvpTypesToGenerate = new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default);
+            var tableValuedParameterTypes = new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default);
 
-            // 1. Определяем стратегию (Провайдер)
-            var visorAttr = interfaceSymbol.GetAttributes()
-                .FirstOrDefault(ad => ad.AttributeClass?.Name == "VisorAttribute" || ad.AttributeClass?.Name == "Visor");
+            var visorAttribute = interfaceSymbol.GetAttributes()
+                .FirstOrDefault(attributeData => attributeData.AttributeClass?.Name is "VisorAttribute" or "Visor");
 
-            // Получаем значение Enum (int) из конструктора атрибута [Visor(Provider)]
-            // По умолчанию 0 (SqlServer)
-            var providerValue = (int)(visorAttr?.ConstructorArguments.FirstOrDefault().Value ?? 0);
+            var providerValue = (int)(visorAttribute?.ConstructorArguments.FirstOrDefault().Value ?? 0);
 
             IGeneratorStrategy strategy = providerValue switch
             {
-                // 0 = SqlServer
                 0 => new MsSqlStrategy(),
-                
-                // 1 = PostgreSql
                 1 => new PostgreSqlStrategy(),
-                
                 _ => new MsSqlStrategy()
             };
 
-            // 2. Генерация шапки (Using'и зависят от стратегии)
-            GenerateClassHeader(sb, namespaceName, className, interfaceSymbol.Name, strategy);
+            GenerateClassHeader(stringBuilder, namespaceName, className, interfaceSymbol.Name, strategy);
 
-            // 3. Генерация методов
             foreach (var member in interfaceSymbol.GetMembers())
             {
                 if (member is not IMethodSymbol methodSymbol) continue;
 
-                var endpointAttr = methodSymbol.GetAttributes()
-                    .FirstOrDefault(ad => ad.AttributeClass?.Name == "EndpointAttribute" || ad.AttributeClass?.Name == "Endpoint");
+                var endpointAttribute = methodSymbol.GetAttributes()
+                    .FirstOrDefault(attributeData => attributeData.AttributeClass?.Name is "EndpointAttribute" or "Endpoint");
 
-                if (endpointAttr == null) continue;
+                if (endpointAttribute == null) continue;
 
-                GenerateMethod(sb, methodSymbol, endpointAttr, tvpTypesToGenerate, strategy);
+                GenerateMethod(stringBuilder, methodSymbol, endpointAttribute, tableValuedParameterTypes, strategy);
             }
 
-            // 4. Генерация хелперов (TVP / Arrays) - делегируем стратегии
-            strategy.GenerateHelpers(sb, tvpTypesToGenerate);
+            strategy.GenerateHelpers(stringBuilder, tableValuedParameterTypes);
 
-            GenerateClassFooter(sb);
-            return sb.ToString();
+            GenerateClassFooter(stringBuilder);
+            return stringBuilder.ToString();
         }
 
-        private void GenerateClassHeader(StringBuilder sb, string namespaceName, string className, string interfaceName, IGeneratorStrategy strategy)
+        private void GenerateClassHeader(StringBuilder stringBuilder, string namespaceName, string className, string interfaceName, IGeneratorStrategy strategy)
         {
-            sb.AppendLine($@"// <auto-generated/>
+            stringBuilder.AppendLine($@"// <auto-generated/>
 #nullable enable
 using System;
 using System.Threading;
@@ -98,12 +88,12 @@ using System.Threading.Tasks;
 using System.Data;
 using System.Data.Common;
 using System.Collections.Generic;
-using Visor.Core;");
+using Visor.Core;
+using Visor.Core.Exceptions;");
             
-            // Стратегия добавляет свои юзинги (Microsoft.Data.SqlClient или Npgsql)
-            strategy.GenerateUsings(sb);
+            strategy.GenerateUsings(stringBuilder);
 
-            sb.AppendLine($@"
+            stringBuilder.AppendLine($@"
 namespace {namespaceName}
 {{
     public class {className} : {interfaceName}
@@ -116,89 +106,88 @@ namespace {namespaceName}
         }}");
         }
 
-        private void GenerateClassFooter(StringBuilder sb)
+        private void GenerateClassFooter(StringBuilder stringBuilder)
         {
-            sb.AppendLine(@"
+            stringBuilder.AppendLine(@"
     }
 }");
         }
 
-        private void GenerateMethod(StringBuilder sb, IMethodSymbol method, AttributeData endpointAttr, HashSet<INamedTypeSymbol> tvpCollector, IGeneratorStrategy strategy)
+        private void GenerateMethod(StringBuilder stringBuilder, IMethodSymbol method, AttributeData endpointAttribute, HashSet<INamedTypeSymbol> tableValuedParameterCollector, IGeneratorStrategy strategy)
         {
-            var procName = endpointAttr.ConstructorArguments[0].Value?.ToString();
+            var procedureNameObject = endpointAttribute.ConstructorArguments[0].Value;
+
+            if (procedureNameObject == null || string.IsNullOrWhiteSpace(procedureNameObject.ToString()))
+            {
+                throw new ArgumentException($"Endpoint attribute on '{method.Name}' must have a valid procedure name.");
+            }
+
+            var procedureName = procedureNameObject.ToString();
             var returnType = method.ReturnType.ToDisplayString();
             var methodName = method.Name;
 
             var parameters = method.Parameters.Select(p => $"{p.Type.ToDisplayString()} {p.Name}").ToList();
-            var cancellationParamName = method.Parameters.FirstOrDefault(p => p.Type.Name == "CancellationToken")?.Name 
+            var cancellationTokenName = method.Parameters.FirstOrDefault(p => p.Type.Name == "CancellationToken")?.Name 
                                         ?? "System.Threading.CancellationToken.None";
             
             var parametersSignature = string.Join(", ", parameters);
 
-            sb.AppendLine($@"
+            var namedReturnType = method.ReturnType as INamedTypeSymbol;
+            bool isVoid = namedReturnType != null && 
+                          namedReturnType.Name == "Task" && 
+                          !namedReturnType.IsGenericType;
+
+            stringBuilder.AppendLine($@"
         public async {returnType} {methodName}({parametersSignature})
         {{");
             
-            // Стратегия пишет код открытия соединения
-            strategy.GenerateOpenConnection(sb, cancellationParamName);
+            strategy.GenerateOpenConnection(stringBuilder, cancellationTokenName);
             
-            sb.AppendLine($@"
-            command.CommandText = ""{procName}"";
-            command.CommandType = CommandType.StoredProcedure;");
+            strategy.GenerateCommandInit(stringBuilder, procedureName, isVoid, method);
 
-            // Стратегия пишет код параметров (SqlParameter vs NpgsqlParameter)
-            foreach (var param in method.Parameters)
+            foreach (var parameter in method.Parameters)
             {
-                if (param.Type.Name == "CancellationToken") continue;
-                
-                // Передаем "command" как имя переменной команды
-                strategy.GenerateParameter(sb, param, "command", tvpCollector);
+                if (parameter.Type.Name == "CancellationToken") continue;
+                strategy.GenerateParameter(stringBuilder, parameter, "command", tableValuedParameterCollector);
             }
 
-            sb.AppendLine(@"
+            stringBuilder.AppendLine(@"
             try
             {");
 
-            // Логика выполнения (ExecuteReader) - она общая, т.к. мы используем DbDataReader
-            GenerateExecutionLogic(sb, method, cancellationParamName);
+            GenerateExecutionLogic(stringBuilder, method, cancellationTokenName);
 
-            sb.AppendLine($@"            }}
+            stringBuilder.AppendLine($@"            }}
             catch (System.Data.Common.DbException ex)
             {{
                 throw new VisorExecutionException(
                     $""Error executing procedure '{{command.CommandText}}': {{ex.Message}}"", 
-                    ""{procName}"", 
+                    ""{procedureName}"", 
                     ex.ErrorCode, 
                     ex);
             }}
         }}");
         }
 
-        private void GenerateExecutionLogic(StringBuilder sb, IMethodSymbol method, string cancellationTokenName)
+        private void GenerateExecutionLogic(StringBuilder stringBuilder, IMethodSymbol method, string cancellationTokenName)
         {
             var namedReturnType = method.ReturnType as INamedTypeSymbol;
-            bool isVoid = namedReturnType != null && 
-                          namedReturnType.Name == "Task" && 
-                          !namedReturnType.IsGenericType;
+            var isVoid = namedReturnType is { Name: "Task", IsGenericType: false };
 
             if (isVoid)
             {
-                sb.AppendLine($@"                await command.ExecuteNonQueryAsync({cancellationTokenName});");
+                stringBuilder.AppendLine($@"                await command.ExecuteNonQueryAsync({cancellationTokenName});");
                 return;
             }
 
             var taskResultType = namedReturnType?.TypeArguments[0] as INamedTypeSymbol;
             if (taskResultType == null)
             {
-                sb.AppendLine(@"                throw new NotImplementedException(""Visor: Unknown return type"");");
+                stringBuilder.AppendLine(@"                throw new NotImplementedException(""Visor: Unknown return type"");");
                 return;
             }
 
-            bool isCollection = taskResultType.IsGenericType && 
-                               (taskResultType.Name == "List" || 
-                                taskResultType.Name == "IEnumerable" || 
-                                taskResultType.Name == "IReadOnlyList" ||
-                                taskResultType.Name == "IList");
+            var isCollection = taskResultType is { IsGenericType: true, Name: "List" or "IEnumerable" or "IReadOnlyList" or "IList" };
 
             var rowType = isCollection 
                 ? taskResultType.TypeArguments[0] as INamedTypeSymbol 
@@ -209,25 +198,25 @@ namespace {namespaceName}
             var rowTypeName = rowType.ToDisplayString();
             bool isScalar = IsScalarType(rowType);
 
-            sb.AppendLine($@"                using var reader = await command.ExecuteReaderAsync(System.Data.CommandBehavior.Default, {cancellationTokenName});");
+            stringBuilder.AppendLine($@"                using var reader = await command.ExecuteReaderAsync(System.Data.CommandBehavior.Default, {cancellationTokenName});");
 
             if (isCollection)
             {
-                sb.AppendLine($@"
+                stringBuilder.AppendLine($@"
                 var list = new System.Collections.Generic.List<{rowTypeName}>();
                 while (await reader.ReadAsync({cancellationTokenName}))
                 {{");
             }
             else
             {
-                sb.AppendLine($@"
+                stringBuilder.AppendLine($@"
                 if (await reader.ReadAsync({cancellationTokenName}))
                 {{");
             }
 
             if (isScalar)
             {
-                sb.AppendLine($@"
+                stringBuilder.AppendLine($@"
                     {rowTypeName} item;
                     if (!reader.IsDBNull(0))
                         item = await reader.GetFieldValueAsync<{rowTypeName}>(0, {cancellationTokenName});
@@ -236,30 +225,50 @@ namespace {namespaceName}
             }
             else
             {
-                sb.AppendLine($@"
+                stringBuilder.AppendLine($@"
                     var item = new {rowTypeName}();");
 
-                foreach (var prop in rowType.GetMembers().OfType<IPropertySymbol>())
+                foreach (var property in rowType.GetMembers().OfType<IPropertySymbol>())
                 {
-                    if (prop.IsStatic || prop.DeclaredAccessibility != Accessibility.Public || prop.SetMethod == null) 
+                    if (property.IsStatic || property.DeclaredAccessibility != Accessibility.Public || property.SetMethod == null) 
                         continue;
 
-                    var propType = prop.Type.ToDisplayString();
-                    var propName = prop.Name;
+                    var propertyType = property.Type.ToDisplayString();
+                    var propertyName = property.Name;
+                    
+                    var databaseColumnName = propertyName;
+                    
+                    var columnAttribute = property.GetAttributes().FirstOrDefault(a => 
+                        a.AttributeClass?.Name is 
+                            "VisorColumnAttribute" or 
+                            "VisorColumn" or 
+                            "VisorMsSqlColumnAttribute" or 
+                            "VisorMsSqlColumn" or 
+                            "VisorPgColumnAttribute" or 
+                            "VisorPgColumn");
+                    
+                    if (columnAttribute != null)
+                    {
+                        var nameArgument = columnAttribute.NamedArguments.FirstOrDefault(na => na.Key == "Name");
+                        if (nameArgument is { Key: not null, Value.Value: not null })
+                        {
+                            databaseColumnName = nameArgument.Value.Value.ToString();
+                        }
+                    }
 
-                    sb.AppendLine($@"
+                    stringBuilder.AppendLine($@"
                     try 
                     {{
-                        int ord_{propName} = reader.GetOrdinal(""{propName}"");
-                        if (!reader.IsDBNull(ord_{propName}))
+                        int ordinal_{propertyName} = reader.GetOrdinal(""{databaseColumnName}"");
+                        if (!reader.IsDBNull(ordinal_{propertyName}))
                         {{
-                            item.{propName} = await reader.GetFieldValueAsync<{propType}>(ord_{propName}, {cancellationTokenName});
+                            item.{propertyName} = await reader.GetFieldValueAsync<{propertyType}>(ordinal_{propertyName}, {cancellationTokenName});
                         }}
                     }}
                     catch (IndexOutOfRangeException ex) 
                     {{ 
                         throw new VisorMappingException(
-                            $""Mapping error: Column '{{""{propName}""}}' not found in result set. Check your DTO."", 
+                            $""Mapping error: Column '{{""{databaseColumnName}""}}' not found in result set. Check your DTO."", 
                             command.CommandText, 
                             ex);
                     }}");
@@ -268,28 +277,30 @@ namespace {namespaceName}
 
             if (isCollection)
             {
-                sb.AppendLine(@"
+                stringBuilder.AppendLine(@"
                     list.Add(item);
                 }
                 return list;");
             }
             else
             {
-                // Подавление warning CS8603 (возврат null)
-                sb.AppendLine(@"
+                stringBuilder.AppendLine(@"
                     return item;
                 }
                 return default!;");
             }
         }
 
-        // --- ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ (Общие) ---
-
         private string GetImplementationName(INamedTypeSymbol interfaceSymbol)
         {
-            return interfaceSymbol.Name.StartsWith("I") && interfaceSymbol.Name.Length > 1
-                ? interfaceSymbol.Name.Substring(1) + "Implementation"
-                : interfaceSymbol.Name + "Implementation";
+            if (interfaceSymbol.Name.StartsWith("I") && 
+                interfaceSymbol.Name.Length > 1 && 
+                char.IsUpper(interfaceSymbol.Name[1]))
+            {
+                return interfaceSymbol.Name.Substring(1);
+            }
+            
+            return interfaceSymbol.Name + "Generated";
         }
 
         private bool IsScalarType(ITypeSymbol type)
@@ -302,14 +313,18 @@ namespace {namespaceName}
                    || type.Name == "Decimal";
         }
 
-        private static bool IsCandidate(SyntaxNode node) => node is InterfaceDeclarationSyntax i && i.AttributeLists.Count > 0;
+        private static bool IsCandidate(SyntaxNode node) => node is InterfaceDeclarationSyntax interfaceDeclarationSyntax && interfaceDeclarationSyntax.AttributeLists.Count > 0;
 
         private static INamedTypeSymbol? GetVisorInterface(GeneratorSyntaxContext context)
         {
             var interfaceDeclaration = (InterfaceDeclarationSyntax)context.Node;
-            var symbol = context.SemanticModel.GetDeclaredSymbol(interfaceDeclaration) as INamedTypeSymbol;
-            if (symbol == null) return null;
-            return symbol.GetAttributes().Any(ad => ad.AttributeClass?.Name == "VisorAttribute" || ad.AttributeClass?.Name == "Visor") ? symbol : null;
+            
+            if (context.SemanticModel.GetDeclaredSymbol(interfaceDeclaration) is not INamedTypeSymbol symbol) 
+                return null;
+            
+            return symbol.GetAttributes().Any(attributeData => attributeData.AttributeClass?.Name is "VisorAttribute" or "Visor") 
+                ? symbol 
+                : null;
         }
     }
 }

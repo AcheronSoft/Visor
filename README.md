@@ -27,7 +27,7 @@ We compared inserting **10,000 records** into MS SQL Server using a Transactiona
 | Dapper | Loop Insert | 43,069.73 ms | 15.34 MB | 1 / 0 / 0 |
 
 ### Why is Visor 10x faster than EF and 800x faster than loops?
-* **Zero Allocation Streaming:** Visor maps `List<T>` directly to `IEnumerable<SqlDataRecord>` using `yield return`. No intermediate `DataTable` or memory copying.
+* **Zero Allocation Streaming:** Visor maps `List<T>` directly to `IEnumerable<SqlDataRecord>` (MSSQL) or Arrays (Postgres) using `yield return`. No intermediate `DataTable` or memory copying.
 * **No Runtime Reflection:** All mapping code is generated at compile-time.
 * **Strict Mapping:** If your DB schema changes, Visor fails fast with clear exceptions, not silent data corruption.
 
@@ -37,11 +37,12 @@ We compared inserting **10,000 records** into MS SQL Server using a Transactiona
 
 ```bash
 dotnet add package Visor.Core
+dotnet add package Visor.Generators
+
+# Choose your provider:
 dotnet add package Visor.SqlServer
 # OR
 dotnet add package Visor.PostgreSql
-
-dotnet add package Visor.Generators
 ```
 
 ---
@@ -72,28 +73,30 @@ public interface IUserRepository
 ```
 
 ### 2. Define your DTOs
-Map your class to a User-Defined Table Type (for TVP) or just a Result Set.
+Use `[VisorMsSqlColumn]` for strict SQL type mapping.
 
 ```csharp
+using Visor.SqlServer; // Provider-specific attributes
+
 [VisorTable("dbo.UserListType")] // Matches SQL User-Defined Type
 public class UserItemDto
 {
-    [VisorColumn(0, System.Data.SqlDbType.Int)]
+    [VisorMsSqlColumn(0, System.Data.SqlDbType.Int)]
     public int Id { get; set; }
 
-    [VisorColumn(1, System.Data.SqlDbType.NVarChar, 100)]
+    [VisorMsSqlColumn(1, System.Data.SqlDbType.NVarChar, 100)]
     public string Name { get; set; }
 }
 ```
 
 ### 3. Register & Use
-Visor generates the implementation class `UserRepositoryImplementation` automatically.
+Visor generates the implementation class `UserRepository` automatically.
 
 ```csharp
 // In Program.cs
 services.AddScoped<IVisorConnectionFactory>(sp => 
     new SqlServerConnectionFactory("Server=..."));
-services.AddScoped<IUserRepository, UserRepositoryImplementation>();
+services.AddScoped<IUserRepository, UserRepository>();
 
 // In your Service
 public class MyService(IUserRepository repo)
@@ -141,17 +144,17 @@ services.AddScoped<IVisorConnectionFactory>(sp =>
     new PostgreSqlConnectionFactory(dataSource));
 ```
 
-### 3. Define DTO with explicit mapping
-Postgres is case-sensitive (defaults to lowercase). Use `Name` property to map C# `PascalCase` to DB `snake_case`.
+### 3. Define DTO
+Use `[VisorColumn]` with `Name` property to map C# `PascalCase` to Postgres `snake_case`. Types are inferred automatically.
 
 ```csharp
 [VisorTable("user_list_type")]
 public class PgUserItem
 {
-    [VisorColumn(0, System.Data.SqlDbType.Int, Name = "id")] 
+    [VisorColumn(0, Name = "id")] 
     public int Id { get; set; }
 
-    [VisorColumn(1, System.Data.SqlDbType.NVarChar, Name = "user_name")]
+    [VisorColumn(1, Name = "user_name")]
     public string UserName { get; set; }
 }
 ```
@@ -165,7 +168,7 @@ Visor supports explicit transactions via the `VisorDbLease` pattern (Unit of Wor
 ```csharp
 public async Task CreateOrderFlow(OrderDto order)
 {
-    // Start a transaction scope
+    // Start a transaction scope (scoped per request)
     await _factory.BeginTransactionAsync();
 
     try 
@@ -193,7 +196,7 @@ Visor is a **"White Box"**.
 
 * It generates **readable C# code** in your `obj/Generated` folder.
 * You can step through the generated code with a debugger.
-* You can see exactly how `SqlDataReader` is being read.
+* You can see exactly how `SqlDataReader` or `NpgsqlDataReader` is being read.
 * **Strict by Default:** If a column is missing in the result set, Visor throws a `VisorMappingException` immediately, preventing "silent zero" bugs in production.
 
 ---
@@ -202,10 +205,10 @@ Visor is a **"White Box"**.
 
 - [x] **MSSQL Support** (Complete)
 - [x] **TVP Streaming** (Complete)
-- [x] **Transactions** (Complete)
 - [x] **PostgreSQL Support** (Complete)
-- [ ] **CLI Tool** for Database-First scaffolding
+- [x] **Transactions** (Complete)
 - [ ] **NuGet Packaging**
+- [ ] **CLI Tool** for Database-First scaffolding
 
 ---
 

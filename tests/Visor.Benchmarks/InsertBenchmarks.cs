@@ -6,13 +6,13 @@ using Visor.SqlServer;
 
 namespace Visor.Benchmarks;
 
-// Конфигурация бенчмарка (греем, замеряем память)
+// Benchmark configuration (warmup, memory measurement).
 [SimpleJob]
 [MemoryDiagnoser] 
 public class InsertBenchmarks
 {
     private const string ConnString = "Server=localhost,1433;Database=VisorTestDb;User Id=sa;Password=VisorStrongPass123!;TrustServerCertificate=True;";
-    private const int RowCount = 10_000; // Количество записей
+    private const int RowCount = 10_000; // Number of records to insert.
 
     private List<UserItemDto> _data = null!;
     private IVisorConnectionFactory _visorFactory = null!;
@@ -21,18 +21,18 @@ public class InsertBenchmarks
     [GlobalSetup]
     public void Setup()
     {
-        // 1. Генерируем данные в памяти
+        // 1. Generate in-memory data.
         _data = new List<UserItemDto>(RowCount);
         for (int i = 0; i < RowCount; i++)
         {
             _data.Add(new UserItemDto { Name = $"User {Guid.NewGuid()}" });
         }
 
-        // 2. Инициализируем Visor
+        // 2. Initialize Visor components.
         _visorFactory = new SqlServerConnectionFactory(ConnString);
-        _visorRepo = new BenchmarkRepoImplementation(_visorFactory);
+        _visorRepo = new BenchmarkRepo(_visorFactory);
 
-        // 3. Чистим таблицу перед стартом (через Dapper для простоты)
+        // 3. Truncate the table before starting (using Dapper for simplicity).
         using var conn = new SqlConnection(ConnString);
         conn.Execute("TRUNCATE TABLE Users");
     }
@@ -49,7 +49,7 @@ public class InsertBenchmarks
     public async Task DapperInsert()
     {
         using var connection = new SqlConnection(ConnString);
-        // Dapper автоматически крутит цикл INSERT для списка
+        // Dapper automatically iterates and performs an INSERT for each item in the list.
         await connection.ExecuteAsync("INSERT INTO Users (Name, IsActive, ExternalId) VALUES (@Name, 1, NEWID())", _data);
     }
 
@@ -58,14 +58,14 @@ public class InsertBenchmarks
     public async Task EfCoreInsert()
     {
         using var ctx = new BenchEfContext(ConnString);
-        // Маппим DTO в EF Entity
+        // Map DTOs to EF Core entities.
         var entities = _data.Select(x => new EfUser { Name = x.Name }).ToList();
         
         ctx.Users.AddRange(entities);
         await ctx.SaveChangesAsync();
     }
     
-    // Чистим таблицу после каждого прогона, чтобы не раздувать базу
+    // Clean the table after each iteration to prevent database growth.
     [IterationCleanup]
     public void Cleanup()
     {

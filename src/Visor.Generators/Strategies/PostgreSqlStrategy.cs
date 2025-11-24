@@ -1,5 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using Microsoft.CodeAnalysis;
@@ -8,99 +7,112 @@ namespace Visor.Generators.Strategies
 {
     internal class PostgreSqlStrategy : IGeneratorStrategy
     {
-        public string ConnectionType => "Npgsql.NpgsqlConnection";
-
-        public void GenerateUsings(StringBuilder sb)
+        public void GenerateUsings(StringBuilder stringBuilder)
         {
-            sb.AppendLine("using Npgsql;"); // Основной неймспейс
-            sb.AppendLine("using NpgsqlTypes;"); // Для Enums типов
-            sb.AppendLine("using System.Data;");
+            stringBuilder.AppendLine("using Npgsql;"); 
+            stringBuilder.AppendLine("using NpgsqlTypes;"); 
         }
 
-        public void GenerateOpenConnection(StringBuilder sb, string cancellationTokenName)
+        public void GenerateOpenConnection(StringBuilder stringBuilder, string cancellationTokenName)
         {
-            // Логика открытия такая же (через Lease), 
-            // но важно, что внутри CreateCommand вернется NpgsqlCommand
-            sb.AppendLine($@"            await using var lease = await _factory.OpenAsync({cancellationTokenName});
+            stringBuilder.AppendLine($@"            await using var lease = await _factory.OpenAsync({cancellationTokenName});
             using var command = lease.Connection.CreateCommand();
             command.Transaction = lease.Transaction;");
         }
-
-        public void GenerateParameter(StringBuilder sb, IParameterSymbol param, string commandVariableName, HashSet<INamedTypeSymbol> tvpCollector)
+        
+        public void GenerateCommandInit(StringBuilder stringBuilder, string procedureName, bool isVoid, IMethodSymbol method)
         {
-            // 1. Проверка на Композитный тип (List<T> + [VisorTable])
-            if (IsTvpParam(param.Type, out var itemType, out var sqlTypeName))
+            if (isVoid)
             {
-                // В Postgres мы не генерируем хелпер-метод для маппинга!
-                // Npgsql умеет мапить List<T> сам, если тип зарегистрирован.
-                // Нам нужно только указать DataTypeName (например "public.user_type")
-                
-                // Нюанс: Npgsql хочет имя типа массива, если это массив. Обычно это просто имя типа.
-                
-                sb.AppendLine($@"
-            var p_{param.Name} = new NpgsqlParameter();
-            p_{param.Name}.ParameterName = ""{param.Name}"";
-            // Для массивов/композитов важно указать имя типа в базе
-            p_{param.Name}.DataTypeName = ""{sqlTypeName}""; 
-            
-            if ({param.Name} != null)
-            {{
-                p_{param.Name}.Value = {param.Name};
-            }}
-            else
-            {{
-                p_{param.Name}.Value = DBNull.Value;
-            }}
-            {commandVariableName}.Parameters.Add(p_{param.Name});");
+                stringBuilder.AppendLine($@"
+            command.CommandText = ""{procedureName}"";
+            command.CommandType = CommandType.StoredProcedure;");
             }
             else
             {
-                // 2. Обычный параметр
-                var dbParamName = param.Name;
+                var parameterNames = new List<string>();
+                foreach (var parameter in method.Parameters)
+                {
+                    if (parameter.Type.Name == "CancellationToken") continue;
+                    parameterNames.Add("@" + parameter.Name); 
+                }
                 
-                bool canBeNull = param.Type.IsReferenceType || 
-                                 (param.Type.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T);
+                var parametersString = string.Join(", ", parameterNames);
+
+                stringBuilder.AppendLine($@"
+            command.CommandText = ""SELECT * FROM {procedureName}({parametersString})"";
+            command.CommandType = CommandType.Text;");
+            }
+        }
+
+        public void GenerateParameter(StringBuilder stringBuilder, IParameterSymbol parameter, string commandVariableName, HashSet<INamedTypeSymbol> tableValuedParameterCollector)
+        {
+            if (IsCompositeTypeParameter(parameter.Type, out var itemType, out var sqlTypeName))
+            {
+                var typeName = sqlTypeName!;
+                var arrayTypeName = typeName.Contains("[]") ? typeName : typeName + "[]";
+
+                stringBuilder.AppendLine($@"
+            var npgsqlParameter_{parameter.Name} = new NpgsqlParameter();
+            npgsqlParameter_{parameter.Name}.ParameterName = ""@{parameter.Name}"";
+            npgsqlParameter_{parameter.Name}.DataTypeName = ""{arrayTypeName}""; 
+            
+            if ({parameter.Name} != null)
+            {{
+                npgsqlParameter_{parameter.Name}.Value = {parameter.Name};
+            }}
+            else
+            {{
+                npgsqlParameter_{parameter.Name}.Value = DBNull.Value;
+            }}
+            {commandVariableName}.Parameters.Add(npgsqlParameter_{parameter.Name});");
+            }
+            else
+            {
+                var databaseParameterName = $"@{parameter.Name}";
+                
+                bool canBeNull = parameter.Type.IsReferenceType || 
+                                 (parameter.Type.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T);
 
                 var valueCode = canBeNull 
-                    ? $"(object){param.Name} ?? DBNull.Value" 
-                    : $"(object){param.Name}";
+                    ? $"(object){parameter.Name} ?? DBNull.Value" 
+                    : $"(object){parameter.Name}";
 
-                sb.AppendLine($@"
-            var p_{param.Name} = new NpgsqlParameter();
-            p_{param.Name}.ParameterName = ""{dbParamName}"";
-            p_{param.Name}.Value = {valueCode};
-            {commandVariableName}.Parameters.Add(p_{param.Name});");
+                stringBuilder.AppendLine($@"
+            var npgsqlParameter_{parameter.Name} = new NpgsqlParameter();
+            npgsqlParameter_{parameter.Name}.ParameterName = ""{databaseParameterName}"";
+            npgsqlParameter_{parameter.Name}.Value = {valueCode};
+            {commandVariableName}.Parameters.Add(npgsqlParameter_{parameter.Name});");
             }
         }
 
-        public void GenerateHelpers(StringBuilder sb, HashSet<INamedTypeSymbol> tvpTypes)
+        public void GenerateHelpers(StringBuilder stringBuilder, HashSet<INamedTypeSymbol> tableValuedParameterTypes)
         {
-            // Для Npgsql нам НЕ нужны методы-хелперы типа MapToSqlDataRecord.
-            // Он делает это внутри драйвера через рефлексию или Source Generators (в новых версиях).
-            // Поэтому метод пустой.
+            // PostgreSQL uses composite type mapping directly, so no specific helpers are needed here.
         }
 
-        // --- Внутренние проверки (копия логики, можно вынести в Shared, но пока проще так) ---
-        
-        private bool IsTvpParam(ITypeSymbol type, out INamedTypeSymbol? itemType, out string? sqlTypeName)
+        private bool IsCompositeTypeParameter(ITypeSymbol type, out INamedTypeSymbol? itemType, out string? sqlTypeName)
         {
             itemType = null;
             sqlTypeName = null;
 
             if (type is not INamedTypeSymbol namedType) return false;
             
-            var isCollection = namedType.IsGenericType && 
-                               (namedType.Name == "List" || namedType.Name == "IEnumerable" || namedType.Name == "IList" || namedType.Name == "IReadOnlyList");
-            if (!isCollection) return false;
+            var isCollection = namedType is { IsGenericType: true, Name: "List" or "IEnumerable" or "IList" or "IReadOnlyList" };
+            
+            if (!isCollection) 
+                return false;
 
             itemType = namedType.TypeArguments[0] as INamedTypeSymbol;
-            if (itemType == null) return false;
 
-            var attr = itemType.GetAttributes().FirstOrDefault(a => a.AttributeClass?.Name == "VisorTableAttribute" || a.AttributeClass?.Name == "VisorTable");
-            if (attr == null) return false;
+            var tableAttribute = itemType?.GetAttributes().FirstOrDefault(a => a.AttributeClass?.Name is "VisorTableAttribute" or "VisorTable");
+            
+            if (tableAttribute == null) 
+                return false;
 
-            sqlTypeName = attr.ConstructorArguments[0].Value?.ToString();
-            return true;
+            sqlTypeName = tableAttribute.ConstructorArguments[0].Value?.ToString();
+            
+            return !string.IsNullOrEmpty(sqlTypeName);
         }
     }
 }

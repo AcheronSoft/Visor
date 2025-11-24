@@ -1,14 +1,16 @@
 ﻿using System.Data;
 using Visor.Abstractions;
+using Visor.Abstractions.Attributes;
+using Visor.SqlServer.Attributes;
 
 namespace Visor.UnitTests;
 
-[VisorTable("dbo.UserListType")] // <-- Имя типа в базе
+[VisorTable("dbo.UserListType")]
 public class UserItemDto
 {
-    [VisorColumn(0, SqlDbType.Int)] // <-- Порядок 0
+    [VisorMsSqlColumn(0, SqlDbType.Int)]
     public int Id { get; set; }
 
-    [VisorColumn(1, SqlDbType.NVarChar, 100)] // <-- Порядок 1, Размер 100
-    public string Name { get; set; } = "";
+    [VisorMsSqlColumn(1, SqlDbType.NVarChar, 100)]
+    public string Name { get; set; } = string.Empty;
 }

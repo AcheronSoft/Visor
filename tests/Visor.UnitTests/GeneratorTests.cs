@@ -3,21 +3,21 @@ using Visor.Core;
 
 namespace Visor.UnitTests
 {
-    // 1. Фейковая реализация для тестов (Mock)
+    // A mock implementation of the connection factory for testing purposes.
     public class FakeConnectionFactory : IVisorConnectionFactory
     {
-        // Обновленный метод открытия соединения
+        // Returns a lease for a fake connection.
         public Task<VisorDbLease> OpenAsync(CancellationToken cancellationToken = default)
         {
             Console.WriteLine("Fake Connection Lease Acquired!");
             
-            // Возвращаем структуру Lease. 
-            // Передаем null вместо Connection, так как это Unit-тест и мы не идем в базу.
-            // shouldDispose: true (имитируем, что это новое соединение)
+            // Return a lease struct.
+            // Pass null for the connection as this is a unit test and no database is involved.
+            // shouldDispose: true simulates a new connection.
             return Task.FromResult(new VisorDbLease(null!, null, shouldDispose: true)); 
         }
 
-        // Заглушки для транзакций
+        // Stubs for transaction management.
         public Task BeginTransactionAsync(CancellationToken cancellationToken = default)
         {
             Console.WriteLine("Fake Transaction Started");
@@ -42,21 +42,15 @@ namespace Visor.UnitTests
         [Fact]
         public void Test_DependencyInjection_Works()
         {
-            // 1. Создаем зависимости
+            // Arrange: Create dependencies.
             var factory = new FakeConnectionFactory();
             
-            // 2. Создаем сгенерированный класс (теперь он требует параметр!)
-            // Если код не компилируется здесь -> значит генератор не обновился
-            var repo = new MyFirstRepoImplementation(factory);
+            // Act: Instantiate the generated class, which now requires the factory.
+            // If this line fails to compile, the source generator has not been updated correctly.
+            var repo = new MyFirstRepo(factory);
 
-            // 3. Вызываем метод (я поменял имя метода в генераторе на HelloFromVisorAsync)
-            // Убедись, что в генераторе ты тоже поменял сигнатуру на async Task
-            // Если в интерфейсе IMyFirstRepo метод void, то добавь туда Task HelloFromVisorAsync();
-            
-            // *Временный хак*: Пока просто проверь, что 'new' работает.
+            // Assert: For now, just verify that the repository can be instantiated.
             Assert.NotNull(repo);
         }
-        
-        
     }
 }
