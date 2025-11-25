@@ -1,5 +1,9 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   
+  <PropertyGroup>
+	<Description>Microsoft SQL Server provider for Visor ORM. Includes zero-allocation TVP streaming and strict Stored Procedure mapping.</Description>
+  </PropertyGroup>
+  
   <ItemGroup>
     <ProjectReference Include="..\Visor.Core\Visor.Core.csproj" />
     <PackageReference Include="Microsoft.Data.SqlClient" Version="6.1.3" />

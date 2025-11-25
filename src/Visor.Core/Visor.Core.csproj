@@ -2,6 +2,7 @@
 
   <PropertyGroup>
     <TieredPGO>true</TieredPGO>
+    <Description>Shared runtime logic and infrastructure for Visor providers. Contains connection factories and execution contexts.</Description>
   </PropertyGroup>
   
   <ItemGroup>
