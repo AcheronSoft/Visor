@@ -4,6 +4,7 @@
 
 > **High-performance, Source-Generated ORM for .NET 10+.**
 > Treats your Database Stored Procedures as a strictly typed API.
+> *Visor is not about generating SQL queries; it's about efficiently consuming Database Endpoints.*
 
 [![NuGet Version](https://img.shields.io/nuget/v/Visor.SqlServer.svg?style=flat&logo=nuget)](https://www.nuget.org/packages/Visor.SqlServer)
 [![NuGet Downloads](https://img.shields.io/nuget/dt/Visor.SqlServer.svg?style=flat&logo=nuget)](https://www.nuget.org/packages/Visor.SqlServer)
@@ -19,15 +20,11 @@
 
 ## 🧠 Philosophy: Database as an API
 
-Visor was not born solely for performance. It was born from an architectural conviction: **The Database should be treated as an external API.**
+Visor was not born solely for performance. It is an architectural statement: **The Database should be treated as a strict external API.**
 
-In modern development, we often treat databases as passive storage buckets, littering our C# code with ad-hoc SQL queries or fragile LINQ expressions. Visor changes the paradigm:
-
-1.  **Stored Procedures are Endpoints.** Just like a REST API has controllers, your Database has Procedures and Functions. They are the **only** entry points.
-2.  **Strict Contracts.** You don't "query" the database; you **consume** its API. The `[Endpoint]` attribute binds a C# method directly to a database procedure, creating a strict, compile-time contract.
-3.  **No SQL in C#.** Visor isn't an SQL generator. It is a high-performance **execution engine** for these endpoints.
-
-**Visor bridges the gap between your Domain and your Data, ensuring that your Database API is consumed as efficiently and strictly as a gRPC or REST client.**
+1.  **Stored Procedures are Endpoints.** Just like REST controllers, your Stored Procedures are the entry points.
+2.  **Strict Contracts.** You don't "query" the database; you **consume** it. The `[Endpoint]` attribute binds your code to the DB schema at compile time.
+3.  **No SQL in C#.** Visor is not a query builder. It is a high-performance execution engine for your data contracts.
 
 ---
 
@@ -74,7 +71,6 @@ Visor is modular. You typically only need to install a **Provider** and the **Ge
 | **[Visor.Generators](https://www.nuget.org/packages/Visor.Generators/)** | **Required.** Roslyn Source Generators (Compile-time magic). | [![NuGet](https://img.shields.io/nuget/v/Visor.Generators.svg)](https://www.nuget.org/packages/Visor.Generators/) |
 | [Visor.Abstractions](https://www.nuget.org/packages/Visor.Abstractions/) | Attributes & Interfaces only. Keep your Domain clean. | [![NuGet](https://img.shields.io/nuget/v/Visor.Abstractions.svg)](https://www.nuget.org/packages/Visor.Abstractions/) |
 | [Visor.Core](https://www.nuget.org/packages/Visor.Core/) | Shared runtime infrastructure (Internal). | [![NuGet](https://img.shields.io/nuget/v/Visor.Core.svg)](https://www.nuget.org/packages/Visor.Core/) |
-```
 
 ---
 
@@ -238,7 +234,7 @@ Visor is a **"White Box"**.
 - [x] **TVP Streaming** (Complete)
 - [x] **PostgreSQL Support** (Complete)
 - [x] **Transactions** (Complete)
-- [ ] **NuGet Packaging**
+- [x] **NuGet Packaging**
 - [ ] **CLI Tool** for Database-First scaffolding
 
 ---
