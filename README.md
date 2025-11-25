@@ -58,6 +58,7 @@ dotnet add package Visor.SqlServer
 # OR
 dotnet add package Visor.PostgreSql
 ```
+
 ---
 
 ## 📦 Ecosystem
@@ -188,6 +189,56 @@ public class PgUserItem
 
 ---
 
+## 🎛️ Advanced: Output Parameters & Return Values
+
+Real-world Enterprise Stored Procedures often return more than just data — they return pagination metadata, status codes, and calculated values via `OUTPUT` parameters.
+
+Visor handles this elegantly using the **Response Wrapper** pattern.
+
+### 1. Define a Wrapper Class
+Create a class that describes **everything** the procedure returns. Use `[VisorResultSet]` for the data list, and `[VisorOutput]` for parameters.
+
+```csharp
+public class SearchResult
+{
+    // The main data (SELECT * FROM ...)
+    [VisorResultSet]
+    public List<UserDto> Users { get; set; }
+
+    // Maps to @TotalCount OUTPUT parameter
+    [VisorOutput("TotalCount")]
+    public int TotalCount { get; set; }
+
+    // Maps to the RETURN statement (e.g., RETURN 0)
+    [VisorReturnValue]
+    public int ReturnCode { get; set; }
+}
+```
+
+### 2. Update Interface
+Return the wrapper class instead of a List.
+
+```csharp
+[Visor(VisorProvider.SqlServer)]
+public interface IAdvancedRepo
+{
+    [Endpoint("sp_SearchUsers")]
+    Task<SearchResult> SearchAsync(string filter);
+}
+```
+
+### 3. Usage
+Visor automatically handles the ADO.NET complexity: executing the reader, mapping the list, closing the reader, and *then* populating the output parameters.
+
+```csharp
+var result = await repo.SearchAsync("Alice");
+
+Console.WriteLine($"Found {result.Users.Count} out of {result.TotalCount}.");
+if (result.ReturnCode != 0) { /* Handle error */ }
+```
+
+---
+
 ## 🛡️ Transaction Support
 
 Visor supports explicit transactions via the `VisorDbLease` pattern (Unit of Work).
@@ -230,12 +281,17 @@ Visor is a **"White Box"**.
 
 ## 🗺️ Roadmap
 
-- [x] **MSSQL Support** (Complete)
-- [x] **TVP Streaming** (Complete)
-- [x] **PostgreSQL Support** (Complete)
-- [x] **Transactions** (Complete)
-- [x] **NuGet Packaging**
-- [ ] **CLI Tool** for Database-First scaffolding
+We are actively bridging the gap between raw speed and developer experience.
+
+- [x] **Core Features:** MSSQL & PostgreSQL Support, TVP Streaming, Transactions.
+- [x] **Complex Mapping:** Output Parameters, Return Values, Composite Types.
+- [x] **NuGet Packaging:** automated CI/CD flow.
+- [ ] **Resiliency:** Retry policies & Circuit Breaker integration.
+- [ ] **Command Config:** Per-command Timeouts & Behaviors.
+- [ ] **Observability:** Advanced OpenTelemetry Tracing, Metrics & Logging.
+- [ ] **More Providers:** Oracle, MySQL, CosmosDB, MongoDB.
+- [ ] **Configuration:** Json-based Database configuration support.
+- [ ] **CLI Tool:** Database-First scaffolding.
 
 ---
 

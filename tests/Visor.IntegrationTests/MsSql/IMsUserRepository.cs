@@ -1,7 +1,7 @@
-﻿using Visor.Abstractions;
-using Visor.Abstractions.Attributes;
+﻿using Visor.Abstractions.Attributes;
+using Visor.IntegrationTests.MsSql.Stabs;
 
-namespace Visor.IntegrationTests.MsSql.Stabs;
+namespace Visor.IntegrationTests.MsSql;
 
 [Visor]
 public interface IMsUserRepository

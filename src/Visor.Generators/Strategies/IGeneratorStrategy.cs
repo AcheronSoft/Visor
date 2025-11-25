@@ -41,6 +41,24 @@ internal interface IGeneratorStrategy
     void GenerateParameter(StringBuilder stringBuilder, IParameterSymbol parameter, string commandVariableName, HashSet<INamedTypeSymbol> tableValuedParameterCollector);
 
     /// <summary>
+    /// Generates code to create an OUTPUT parameter based on a DTO property.
+    /// </summary>
+    /// <param name="stringBuilder">The string builder to append the code to.</param>
+    /// <param name="commandVariableName">The variable name of the command.</param>
+    /// <param name="databaseParameterName">The name of the parameter in the database.</param>
+    /// <param name="typeSymbol">The C# type of the property.</param>
+    /// <param name="csharpVariableName">The variable name for the parameter in the generated C# code.</param>
+    void GenerateOutputParameter(StringBuilder stringBuilder, string commandVariableName, string databaseParameterName, ITypeSymbol typeSymbol, string csharpVariableName);
+
+    /// <summary>
+    /// Generates code to create a RETURN_VALUE parameter.
+    /// </summary>
+    /// <param name="stringBuilder">The string builder to append the code to.</param>
+    /// <param name="commandVariableName">The variable name of the command.</param>
+    /// <param name="csharpVariableName">The variable name for the parameter in the generated C# code.</param>
+    void GenerateReturnValueParameter(StringBuilder stringBuilder, string commandVariableName, string csharpVariableName);
+    
+    /// <summary>
     /// Generates any helper methods required by the strategy, such as for mapping custom types.
     /// </summary>
     /// <param name="stringBuilder">The string builder to append the code to.</param>
