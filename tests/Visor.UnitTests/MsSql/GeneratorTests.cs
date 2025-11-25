@@ -1,55 +1,73 @@
-﻿using Visor.Core;
+﻿using Visor.Abstractions.Attributes;
+using Visor.Abstractions.Enums;
 
-namespace Visor.UnitTests.MsSql
+namespace Visor.UnitTests.MsSql;
+
+public class GeneratorTests
 {
-    // A mock implementation of the connection factory for testing purposes.
-    public class FakeConnectionFactory : IVisorConnectionFactory
+    [Fact]
+    public void Test_DependencyInjection_Works()
     {
-        // Returns a session for a fake connection.
-        public Task<VisorSession> OpenAsync(CancellationToken cancellationToken = default)
-        {
-            Console.WriteLine("Fake Connection Lease Acquired!");
+        // Arrange: Create dependencies.
+        var factory = new FakeConnectionFactory();
             
-            // Return a session struct.
-            // Pass null for the connection as this is a unit test and no database is involved.
-            // shouldDispose: true simulates a new connection.
-            return Task.FromResult(new VisorSession(null!, null, shouldDispose: true)); 
-        }
+        // Act: Instantiate the generated class, which now requires the factory.
+        // If this line fails to compile, the source generator has not been updated correctly.
+        var repo = new MyFirstRepo(factory);
 
-        // Stubs for transaction management.
-        public Task BeginTransactionAsync(CancellationToken cancellationToken = default)
-        {
-            Console.WriteLine("Fake Transaction Started");
-            return Task.CompletedTask;
-        }
+        // Assert: For now, just verify that the repository can be instantiated.
+        Assert.NotNull(repo);
+    }
+        
+    // --- 6. Float & Double Tests (IEEE 754) ---
 
-        public Task CommitTransactionAsync(CancellationToken cancellationToken = default)
-        {
-            Console.WriteLine("Fake Transaction Committed");
-            return Task.CompletedTask;
-        }
+    [Fact]
+    public void VisorColumn_Double_ShouldThrow_WhenSettingPrecision()
+    {
+        // Double (SQL Float) is fixed precision (53 bits). 
+        // Setting explicit precision in SqlMetaData is not allowed.
+        var attr = new VisorColumnAttribute(1, VisorDbType.Double);
 
-        public Task RollbackTransactionAsync(CancellationToken cancellationToken = default)
+        var ex = Assert.Throws<ArgumentException>(() =>
         {
-            Console.WriteLine("Fake Transaction Rolled back");
-            return Task.CompletedTask;
-        }
+            attr.Precision = 10;
+        });
+
+        Assert.Contains("Property 'Precision' is not applicable", ex.Message);
     }
 
-    public class GeneratorTests
+    [Fact]
+    public void VisorColumn_Single_ShouldThrow_WhenSettingScale()
     {
-        [Fact]
-        public void Test_DependencyInjection_Works()
-        {
-            // Arrange: Create dependencies.
-            var factory = new FakeConnectionFactory();
-            
-            // Act: Instantiate the generated class, which now requires the factory.
-            // If this line fails to compile, the source generator has not been updated correctly.
-            var repo = new MyFirstRepo(factory);
+        // Single (SQL Real) is fixed.
+        var attr = new VisorColumnAttribute(1, VisorDbType.Single);
 
-            // Assert: For now, just verify that the repository can be instantiated.
-            Assert.NotNull(repo);
-        }
+        Assert.Throws<ArgumentException>(() =>
+        {
+            attr.Scale = 2;
+        });
+    }
+
+    [Fact]
+    public void VisorColumn_Double_ShouldThrow_WhenSettingSize()
+    {
+        // Double is fixed 8 bytes.
+        var attr = new VisorColumnAttribute(1, VisorDbType.Double);
+
+        Assert.Throws<ArgumentException>(() =>
+        {
+            attr.Size = 8;
+        });
+    }
+
+    [Fact]
+    public void VisorColumn_Double_Default_IsValid()
+    {
+        // Correct usage: just Type without extra params
+        var attr = new VisorColumnAttribute(1, VisorDbType.Double);
+            
+        // Should pass
+        Assert.Equal(VisorDbType.Double, attr.Type);
+        Assert.Equal(0, attr.Precision);
     }
 }

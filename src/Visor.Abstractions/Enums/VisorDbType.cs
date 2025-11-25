@@ -1,73 +1,186 @@
 ﻿namespace Visor.Abstractions.Enums;
 
 /// <summary>
-/// Универсальный тип данных Visor.
-/// Объединяет типы SQL (MSSQL, Postgres, Oracle, MySQL) и NoSQL (Mongo, Cosmos).
+/// Provides a universal data type enumeration for Visor, abstracting over various database systems.
+/// This allows for consistent type mapping across SQL (MSSQL, PostgreSQL, etc.) and NoSQL databases.
 /// </summary>
 public enum VisorDbType
 {
-    // --- 0. Автоматика ---
+    // --- General ---
+    /// <summary>
+    /// Instructs Visor to automatically infer the database type from the C# type. This is the default.
+    /// </summary>
     Auto = 0,
 
-    // --- 1. Целые числа ---
-    Byte,       // tinyint / unsigned tinyint
-    SByte,      // tinyint (signed)
-    Int16,      // smallint / int2
-    Int32,      // int / int4
-    Int64,      // bigint / int8
-    
-    // Специфика MySQL/Oracle (беззнаковые)
-    UInt16,     
-    UInt32,     
-    UInt64,     
+    // --- Numeric Types: Integers ---
+    /// <summary>
+    /// 8-bit unsigned integer (e.g., 'tinyint' in MSSQL).
+    /// </summary>
+    Byte,
+    /// <summary>
+    /// 8-bit signed integer.
+    /// </summary>
+    SByte,
+    /// <summary>
+    /// 16-bit signed integer (e.g., 'smallint' in SQL).
+    /// </summary>
+    Int16,
+    /// <summary>
+    /// 32-bit signed integer (e.g., 'int' in SQL).
+    /// </summary>
+    Int32,
+    /// <summary>
+    /// 64-bit signed integer (e.g., 'bigint' in SQL).
+    /// </summary>
+    Int64,
+    /// <summary>
+    /// 16-bit unsigned integer.
+    /// </summary>
+    UInt16,
+    /// <summary>
+    /// 32-bit unsigned integer.
+    /// </summary>
+    UInt32,
+    /// <summary>
+    /// 64-bit unsigned integer.
+    /// </summary>
+    UInt64,
 
-    // --- 2. Дробные и Точные ---
-    Single,     // real / float4
-    Double,     // float / float8
-    Decimal,    // decimal / numeric
-    Money,      // money (MSSQL/PG)
-    SmallMoney, // smallmoney (MSSQL)
+    // --- Numeric Types: Floating-Point and Fixed-Point ---
+    /// <summary>
+    /// Single-precision floating-point number (e.g., 'real' or 'float4').
+    /// </summary>
+    Single,
+    /// <summary>
+    /// Double-precision floating-point number (e.g., 'float' or 'float8').
+    /// </summary>
+    Double,
+    /// <summary>
+    /// Fixed-point decimal number (e.g., 'decimal' or 'numeric').
+    /// </summary>
+    Decimal,
+    /// <summary>
+    /// Currency value (e.g., 'money' in MSSQL/PostgreSQL).
+    /// </summary>
+    Money,
+    /// <summary>
+    /// Smaller-range currency value (e.g., 'smallmoney' in MSSQL).
+    /// </summary>
+    SmallMoney,
 
-    // --- 3. Логические ---
-    Boolean,    // bit / boolean
+    // --- Logical ---
+    /// <summary>
+    /// Boolean value (e.g., 'bit' or 'boolean').
+    /// </summary>
+    Boolean,
 
-    // --- 4. Строковые и Текстовые ---
-    String,         // nvarchar / text / varchar (Unicode по умолчанию)
-    AnsiString,     // varchar (Non-Unicode, для MSSQL/Oracle legacy)
-    Char,           // nchar / char
-    AnsiChar,       // char (Non-Unicode)
-    
-    // --- 5. Структурированные данные ---
-    Xml,            // xml
-    Json,           // json / jsonb (PG, MySQL, Cosmos)
-    Bson,           // bson (Mongo, Cosmos)
-    
-    // --- 6. Дата и Время ---
-    Date,           // date
-    Time,           // time
-    DateTime,       // datetime / timestamp
-    DateTimeOffset, // datetimeoffset / timestamptz
-    Timestamp,      // rowversion (MSSQL) / timestamp (Legacy)
-    
-    // Специфика Oracle/PG (Интервалы)
-    Interval,       // interval (PG, Oracle DS/YM)
+    // --- String and Text ---
+    /// <summary>
+    /// Unicode string (default for strings, e.g., 'nvarchar', 'text').
+    /// </summary>
+    String,
+    /// <summary>
+    /// Non-Unicode (ANSI) string (e.g., 'varchar').
+    /// </summary>
+    AnsiString,
+    /// <summary>
+    /// Unicode character (e.g., 'nchar').
+    /// </summary>
+    Char,
+    /// <summary>
+    /// Non-Unicode (ANSI) character (e.g., 'char').
+    /// </summary>
+    AnsiChar,
 
-    // --- 7. Бинарные данные ---
-    Binary,         // varbinary / bytea
-    Blob,           // blob (Oracle, MySQL) - для потоковой работы
-    Clob,           // clob (Oracle) - для больших текстов
+    // --- Structured Data ---
+    /// <summary>
+    /// XML data.
+    /// </summary>
+    Xml,
+    /// <summary>
+    /// JSON data (e.g., 'json' or 'jsonb').
+    /// </summary>
+    Json,
+    /// <summary>
+    /// BSON data (for document databases like MongoDB).
+    /// </summary>
+    Bson,
 
-    // --- 8. Уникальные идентификаторы ---
-    Guid,           // uniqueidentifier / uuid
-    ObjectId,       // ObjectId (Mongo / Cosmos)
+    // --- Date and Time ---
+    /// <summary>
+    /// Date only.
+    /// </summary>
+    Date,
+    /// <summary>
+    /// Time only.
+    /// </summary>
+    Time,
+    /// <summary>
+    /// Date and time (e.g., 'datetime' or 'timestamp').
+    /// </summary>
+    DateTime,
+    /// <summary>
+    /// Date and time with timezone information (e.g., 'datetimeoffset' or 'timestamptz').
+    /// </summary>
+    DateTimeOffset,
+    /// <summary>
+    /// Database-generated timestamp for optimistic concurrency (e.g., 'rowversion' in MSSQL).
+    /// </summary>
+    Timestamp,
+    /// <summary>
+    /// Time interval (e.g., 'interval' in PostgreSQL).
+    /// </summary>
+    Interval,
 
-    // --- 9. Специфика Баз Данных ---
-    Cursor,         // refcursor (Oracle / PG) - критично для Output параметров
-    Geometry,       // geometry (PostGIS / MSSQL Spatial / MySQL)
-    Geography,      // geography (MSSQL Spatial)
-    
-    // --- 10. Редкие/Сложные ---
-    Variant,        // sql_variant (MSSQL)
-    Array,          // array (PG) - хотя Visor обычно сам понимает List<T>
-    Object          // map/document (NoSQL generic)
+    // --- Binary Data ---
+    /// <summary>
+    /// Variable-length binary data (e.g., 'varbinary' or 'bytea').
+    /// </summary>
+    Binary,
+    /// <summary>
+    /// Large binary object, often for streaming (e.g., 'blob').
+    /// </summary>
+    Blob,
+    /// <summary>
+    /// Large character object, often for streaming (e.g., 'clob').
+    /// </summary>
+    Clob,
+
+    // --- Unique Identifiers ---
+    /// <summary>
+    /// Globally Unique Identifier (e.g., 'uniqueidentifier' or 'uuid').
+    /// </summary>
+    Guid,
+    /// <summary>
+    /// Object ID for document databases (e.g., MongoDB's ObjectId).
+    /// </summary>
+    ObjectId,
+
+    // --- Database-Specific ---
+    /// <summary>
+    /// A database cursor, typically for returning result sets from procedures (e.g., 'refcursor' in Oracle/PostgreSQL).
+    /// </summary>
+    Cursor,
+    /// <summary>
+    /// Spatial geometry data type.
+    /// </summary>
+    Geometry,
+    /// <summary>
+    /// Spatial geography data type.
+    /// </summary>
+    Geography,
+
+    // --- Complex and Miscellaneous ---
+    /// <summary>
+    /// A special type that can hold data of various other types (e.g., 'sql_variant' in MSSQL).
+    /// </summary>
+    Variant,
+    /// <summary>
+    /// An array of a specific type (e.g., PostgreSQL arrays). Visor typically infers this from List&lt;T&gt;.
+    /// </summary>
+    Array,
+    /// <summary>
+    /// A generic object or document type, for NoSQL databases.
+    /// </summary>
+    Object
 }
