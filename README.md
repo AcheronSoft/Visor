@@ -57,7 +57,7 @@ dotnet add package Visor.Generators
 dotnet add package Visor.SqlServer
 # OR
 dotnet add package Visor.PostgreSql
-
+```
 ---
 
 ## 📦 Ecosystem
