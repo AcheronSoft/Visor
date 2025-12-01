@@ -24,6 +24,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Visor.Core\Visor.Core.csproj" />
     <ProjectReference Include="..\..\src\Visor.SqlServer\Visor.SqlServer.csproj" />
+    <ProjectReference Include="..\..\src\Visor.CLI\Visor.CLI.csproj" />
 	<ProjectReference Include="..\..\src\Visor.Generators\Visor.Generators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
   
