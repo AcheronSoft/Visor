@@ -11,7 +11,21 @@ You can install the tool globally (once published) or run it locally from the so
 dotnet run --project src/Visor.CLI/Visor.CLI.csproj -- run --help
 ```
 
+### Global Installation (Local Source)
+To build and install the tool globally from your local source:
+
+1.  **Pack**:
+    ```bash
+    dotnet pack src/Visor.CLI/Visor.CLI.csproj -c Release --output nupkgs
+    ```
+
+2.  **Install**:
+    ```bash
+    dotnet tool install --global --add-source ./nupkgs Visor.CLI
+    ```
+
 ### Global Installation (NuGet)
+Once published to NuGet.org:
 ```bash
 dotnet tool install --global Visor.CLI
 ```
