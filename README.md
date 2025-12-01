@@ -286,6 +286,7 @@ We are actively bridging the gap between raw speed and developer experience.
 - [x] **Core Features:** MSSQL & PostgreSQL Support, TVP Streaming, Transactions.
 - [x] **Complex Mapping:** Output Parameters, Return Values, Composite Types.
 - [x] **NuGet Packaging:** automated CI/CD flow.
+- [ ] **Railway Oriented Programming:** Native support for `Result<T>` and functional flows.
 - [ ] **Resiliency:** Retry policies & Circuit Breaker integration.
 - [ ] **Command Config:** Per-command Timeouts & Behaviors.
 - [ ] **Observability:** Advanced OpenTelemetry Tracing, Metrics & Logging.

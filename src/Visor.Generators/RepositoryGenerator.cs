@@ -10,7 +10,7 @@ namespace Visor.Generators;
 public class RepositoryGenerator : IIncrementalGenerator
 {
     private const string VisorAttribute = nameof(VisorAttribute);
-    private const string VisorShortAttribute = nameof(Visor);
+    private const string VisorShortAttribute = "Visor";
     private const string EndpointAttribute = nameof(EndpointAttribute);
     private const string EndpointShortAttribute = "Endpoint";
     private const string VisorResultSetAttribute = nameof(VisorResultSetAttribute);
@@ -18,12 +18,12 @@ public class RepositoryGenerator : IIncrementalGenerator
     private const string VisorReturnValueAttribute = nameof(VisorReturnValueAttribute);
     private const string VisorColumnAttribute = nameof(VisorColumnAttribute);
 
-    /// <summary>
-    /// Holds metadata about the method's return type structure to determine if it requires complex mapping.
-    /// </summary>
     private class MethodResultInfo
     {
         public bool IsComplexWrapper { get; set; }
+        public bool IsStreaming { get; set; }
+        public bool IsCollection { get; set; }
+        public ITypeSymbol? RowType { get; set; }
         public IPropertySymbol? ResultSetProperty { get; set; }
         public IPropertySymbol? ReturnValueProperty { get; set; }
         public List<(IPropertySymbol Property, string ParameterName)> OutputProperties { get; } = new();
@@ -40,24 +40,18 @@ public class RepositoryGenerator : IIncrementalGenerator
 
         context.RegisterSourceOutput(interfaceDeclarations, (sourceProductionContext, interfaceSymbol) =>
         {
-            if (interfaceSymbol is null)
-            {
+            if (interfaceSymbol is null) 
                 return;
-            }
-
+            
             try
             {
                 var source = GenerateSource(interfaceSymbol);
                 sourceProductionContext.AddSource($"{interfaceSymbol.Name}_Visor.g.cs", SourceText.From(source, Encoding.UTF8));
             }
-            catch (Exception ex)
+            catch (Exception exception)
             {
-                // In case of a generator crash, emit a comment file to help debugging
-                var errorSource = $$"""
-                                  // Error: {{ex.Message}}
-                                  // {{ex.StackTrace}}
-                                  """;
-                sourceProductionContext.AddSource($"{interfaceSymbol.Name}_Error.g.cs", SourceText.From(errorSource, Encoding.UTF8));
+                var error = $"// Error: {exception.Message}\n// {exception.StackTrace}";
+                sourceProductionContext.AddSource($"{interfaceSymbol.Name}_Error.g.cs", SourceText.From(error, Encoding.UTF8));
             }
         });
     }
@@ -67,19 +61,14 @@ public class RepositoryGenerator : IIncrementalGenerator
         var stringBuilder = new StringBuilder();
         var namespaceName = interfaceSymbol.ContainingNamespace.ToDisplayString();
         var className = GetImplementationName(interfaceSymbol);
-        
-        // Collector for user-defined table types (if needed by strategy)
         var tableValuedParameterTypes = new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default);
 
         var visorAttribute = interfaceSymbol.GetAttributes()
-            .FirstOrDefault(a => a.AttributeClass?.Name is VisorAttribute or VisorShortAttribute);
-
+            .FirstOrDefault(attribute => attribute.AttributeClass?.Name is VisorAttribute or VisorShortAttribute);
         var providerValue = (int)(visorAttribute?.ConstructorArguments.FirstOrDefault().Value ?? 0);
 
-        // Select strategy based on the provider enum/integer
         IGeneratorStrategy strategy = providerValue switch
         {
-            0 => new MsSqlStrategy(),
             1 => new PostgreSqlStrategy(),
             _ => new MsSqlStrategy()
         };
@@ -88,37 +77,61 @@ public class RepositoryGenerator : IIncrementalGenerator
 
         foreach (var member in interfaceSymbol.GetMembers())
         {
-            if (member is not IMethodSymbol methodSymbol)
+            if (member is not IMethodSymbol method || 
+                method.GetAttributes().FirstOrDefault(attribute => attribute.AttributeClass?.Name is EndpointAttribute or EndpointShortAttribute) is not { } endpointAttribute)
             {
                 continue;
             }
 
-            var endpointAttribute = methodSymbol.GetAttributes()
-                .FirstOrDefault(a => a.AttributeClass?.Name is EndpointAttribute or EndpointShortAttribute);
-
-            if (endpointAttribute is null)
-            {
-                continue;
-            }
-
-            GenerateMethod(stringBuilder, methodSymbol, endpointAttribute, tableValuedParameterTypes, strategy);
+            GenerateMethod(stringBuilder, method, endpointAttribute, tableValuedParameterTypes, strategy);
         }
 
-        strategy.GenerateHelpers(stringBuilder, tableValuedParameterTypes);
+        // --- Smart Indentation for Helpers ---
+        var helperSb = new StringBuilder();
+        strategy.GenerateHelpers(helperSb, tableValuedParameterTypes);
+        
+        // 1. Read all lines into memory
+        var helperLines = new List<string>();
+        using (var reader = new StringReader(helperSb.ToString()))
+        {
+            string? line;
+            while ((line = reader.ReadLine()) != null) 
+                helperLines.Add(line);
+        }
+
+        if (helperLines.Count > 0)
+        {
+            // 2. Calculate minimum common indentation (ignore empty lines)
+            var minIndent = helperLines
+                .Where(l => !string.IsNullOrWhiteSpace(l))
+                .Select(l => l.TakeWhile(char.IsWhiteSpace).Count())
+                .DefaultIfEmpty(0)
+                .Min();
+
+            // 3. Output lines with normalized indentation (Level 2 = 8 spaces)
+            foreach (var line in helperLines)
+            {
+                if (string.IsNullOrWhiteSpace(line))
+                {
+                    stringBuilder.AppendLine();
+                }
+                else
+                {
+                    // De-dent (remove strategy's base indent) then Re-dent (add 8 spaces)
+                    // We use Math.Min to ensure safe substring if line is weirdly shorter than minIndent (unlikely due to Where check above)
+                    var safeIndent = Math.Min(line.Length, minIndent);
+                    stringBuilder.AppendLine($"        {line.Substring(safeIndent)}"); 
+                }
+            }
+        }
+        // -------------------------------------
 
         GenerateClassFooter(stringBuilder);
-
         return stringBuilder.ToString();
     }
 
-    private void GenerateClassHeader(
-        StringBuilder stringBuilder, 
-        string namespaceName, 
-        string className, 
-        string interfaceName, 
-        IGeneratorStrategy strategy)
+    private void GenerateClassHeader(StringBuilder stringBuilder, string namespaceName, string className, string interfaceName, IGeneratorStrategy strategy)
     {
-        // Use a temporary builder for usings to allow the strategy to append its own
         var usingsBuilder = new StringBuilder();
         strategy.GenerateUsings(usingsBuilder);
 
@@ -128,9 +141,11 @@ public class RepositoryGenerator : IIncrementalGenerator
             using System;
             using System.Threading;
             using System.Threading.Tasks;
+            using System.Collections.Generic;
+            using System.Linq;
+            using System.Runtime.CompilerServices;
             using System.Data;
             using System.Data.Common;
-            using System.Collections.Generic;
             using Visor.Core;
             using Visor.Core.Exceptions;
             {{usingsBuilder}}
@@ -163,349 +178,258 @@ public class RepositoryGenerator : IIncrementalGenerator
         HashSet<INamedTypeSymbol> tableValuedParameterCollector, 
         IGeneratorStrategy strategy)
     {
-        var procedureNameObject = endpointAttribute.ConstructorArguments[0].Value;
-
-        if (procedureNameObject is null || string.IsNullOrWhiteSpace(procedureNameObject.ToString()))
-        {
-            // Note: In a real generator, use context.ReportDiagnostic here instead of throwing
-            throw new ArgumentException($"Endpoint attribute on '{method.Name}' must have a valid procedure name.");
-        }
-
-        var procedureName = procedureNameObject.ToString();
-        var returnType = method.ReturnType.ToDisplayString();
+        var procedureName = endpointAttribute.ConstructorArguments[0].Value?.ToString() ?? "Unknown";
+        var methodResultInfo = AnalyzeReturnType(method.ReturnType);
+        var returnTypeString = method.ReturnType.ToDisplayString();
         var methodName = method.Name;
 
-        // Build parameter list string
-        var parameters = method.Parameters
-            .Select(p => $"{p.Type.ToDisplayString()} {p.Name}")
-            .ToList();
-            
-        var cancellationTokenName = method.Parameters
-            .FirstOrDefault(p => p.Type.Name == "CancellationToken")?.Name ?? "System.Threading.CancellationToken.None";
-            
-        var parametersSignature = string.Join(", ", parameters);
-
-        // Analyze return type
-        var namedReturnType = method.ReturnType as INamedTypeSymbol;
-        bool isVoid = namedReturnType is not null && 
-                      namedReturnType.Name == "Task" && 
-                      !namedReturnType.IsGenericType;
-
-        // Check for Response Wrapper pattern (Output params / Return Value)
-        MethodResultInfo methodResultInfo = new();
-        if (!isVoid && namedReturnType?.TypeArguments.Length > 0)
-        {
-            methodResultInfo = AnalyzeReturnType(namedReturnType.TypeArguments[0]);
-        }
-
-        stringBuilder.AppendLine($$"""
-
-                    public async {{returnType}} {{methodName}}({{parametersSignature}})
-                    {
-            """);
-            
-        strategy.GenerateOpenConnection(stringBuilder, cancellationTokenName);
-        strategy.GenerateCommandInit(stringBuilder, procedureName, isVoid, method);
+        var parameters = new List<string>();
+        var cancellationTokenName = "System.Threading.CancellationToken.None";
 
         foreach (var parameter in method.Parameters)
         {
+            var parameterType = parameter.Type.ToDisplayString();
             if (parameter.Type.Name == "CancellationToken")
             {
-                continue;
+                cancellationTokenName = parameter.Name;
+                parameters.Add(methodResultInfo.IsStreaming 
+                    ? $"[EnumeratorCancellation] {parameterType} {parameter.Name}" 
+                    : $"{parameterType} {parameter.Name}");
             }
-            strategy.GenerateParameter(stringBuilder, parameter, "command", tableValuedParameterCollector);
+            else
+            {
+                parameters.Add($"{parameterType} {parameter.Name}");
+            }
+        }
+            
+        // Indentation: 8 spaces (Level 2)
+        stringBuilder.AppendLine($$"""
+
+                    public async {{returnTypeString}} {{methodName}}({{string.Join(", ", parameters)}})
+                    {
+            """);
+            
+        // For method body statements, standard Trim() is safe as they are usually flat sequences
+        var tempSb = new StringBuilder();
+        strategy.GenerateOpenConnection(tempSb, cancellationTokenName);
+        strategy.GenerateCommandInit(tempSb, procedureName, methodResultInfo.RowType is null && !methodResultInfo.IsComplexWrapper, method);
+
+        foreach (var parameter in method.Parameters)
+        {
+            if (parameter.Type.Name == "CancellationToken") continue;
+            strategy.GenerateParameter(tempSb, parameter, "command", tableValuedParameterCollector);
         }
 
-        stringBuilder.AppendLine($$"""
-                        try
-                        {
-            """);
-
-        // Determine which execution path to take
-        if (methodResultInfo.IsComplexWrapper)
+        // Apply Level 3 indentation (12 spaces)
+        using (var reader = new StringReader(tempSb.ToString()))
         {
-            GenerateComplexExecutionLogic(stringBuilder, method, methodResultInfo, strategy, cancellationTokenName);
+            string? line;
+            while ((line = reader.ReadLine()) != null)
+            {
+                if (string.IsNullOrWhiteSpace(line))
+                    stringBuilder.AppendLine();
+                else
+                    stringBuilder.AppendLine($"            {line.Trim()}");
+            }
+        }
+
+        if (methodResultInfo.IsStreaming)
+        {
+             GenerateStreamingExecution(stringBuilder, methodResultInfo, cancellationTokenName);
         }
         else
         {
-            GenerateExecutionLogic(stringBuilder, method, cancellationTokenName);
-        }
+            stringBuilder.AppendLine("            try");
+            stringBuilder.AppendLine("            {");
 
-        stringBuilder.AppendLine($$"""
-                        }
-                        catch (System.Data.Common.DbException ex)
-                        {
-                            throw new VisorExecutionException(
-                                $"Error executing procedure '{command.CommandText}': {ex.Message}", 
-                                "{{procedureName}}", 
-                                ex.ErrorCode, 
-                                ex);
-                        }
-                    }
-            """);
+            if (methodResultInfo.IsComplexWrapper)
+                GenerateComplexExecution(stringBuilder, method, methodResultInfo, strategy, cancellationTokenName);
+            else
+                GenerateStandardExecution(stringBuilder, methodResultInfo, cancellationTokenName);
+
+            stringBuilder.AppendLine("            }");
+            stringBuilder.AppendLine("            catch (DbException ex)");
+            stringBuilder.AppendLine("            {");
+            stringBuilder.AppendLine($"                throw new VisorExecutionException($\"Error executing procedure '{{command.CommandText}}': {{ex.Message}}\", \"{procedureName}\", ex.ErrorCode, ex);");
+            stringBuilder.AppendLine("            }");
+        }
+        
+        stringBuilder.AppendLine("        }");
     }
 
-    /// <summary>
-    /// Generates logic for standard execution scenarios: List&lt;T&gt;, Scalar, or void (Task).
-    /// </summary>
-    private void GenerateExecutionLogic(StringBuilder stringBuilder, IMethodSymbol method, string cancellationTokenName)
+    private void GenerateStreamingExecution(StringBuilder stringBuilder, MethodResultInfo methodResultInfo, string cancellationTokenName)
     {
-        var namedReturnType = method.ReturnType as INamedTypeSymbol;
+        if (methodResultInfo.RowType is null) return;
         
-        // Handle: Task
-        var isVoid = namedReturnType is { Name: "Task", IsGenericType: false };
-        if (isVoid)
+        // Base Indent: 12 spaces
+        stringBuilder.AppendLine("            DbDataReader? reader = null;");
+        stringBuilder.AppendLine("            try");
+        stringBuilder.AppendLine("            {");
+        stringBuilder.AppendLine($"                reader = await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, {cancellationTokenName});");
+        stringBuilder.AppendLine("            }");
+        stringBuilder.AppendLine("            catch (DbException ex)");
+        stringBuilder.AppendLine("            {");
+        stringBuilder.AppendLine($"                throw new VisorExecutionException($\"Error executing procedure '{{command.CommandText}}': {{ex.Message}}\", command.CommandText, ex.ErrorCode, ex);");
+        stringBuilder.AppendLine("            }");
+
+        stringBuilder.AppendLine("            using (reader)");
+        stringBuilder.AppendLine("            {");
+        // Indent: 16 spaces
+        stringBuilder.AppendLine($"                while (await reader.ReadAsync({cancellationTokenName}))");
+        stringBuilder.AppendLine("                {");
+        
+        // Row Mapping Indent: 20 spaces
+        GenerateRowMapping(stringBuilder, methodResultInfo.RowType, "item", cancellationTokenName, "                    ");
+
+        stringBuilder.AppendLine("                    yield return item;");
+        stringBuilder.AppendLine("                }"); 
+        stringBuilder.AppendLine("            }"); 
+    }
+
+    private void GenerateStandardExecution(StringBuilder stringBuilder, MethodResultInfo methodResultInfo, string cancellationTokenName)
+    {
+        if (methodResultInfo.RowType is null)
         {
             stringBuilder.AppendLine($"                await command.ExecuteNonQueryAsync({cancellationTokenName});");
             return;
         }
 
-        var taskResultType = namedReturnType?.TypeArguments[0] as INamedTypeSymbol;
-        if (taskResultType is null)
+        stringBuilder.AppendLine($"                using var reader = await command.ExecuteReaderAsync(CommandBehavior.Default, {cancellationTokenName});");
+
+        if (methodResultInfo.IsCollection)
         {
-            stringBuilder.AppendLine("                throw new NotImplementedException(\"Visor: Unknown return type\");");
-            return;
-        }
-
-        var isCollection = taskResultType is { IsGenericType: true, Name: "List" or "IEnumerable" or "IReadOnlyList" or "IList" };
-
-        var rowType = isCollection 
-            ? taskResultType.TypeArguments[0] as INamedTypeSymbol 
-            : taskResultType;
-
-        if (rowType is null)
-        {
-            return;
-        }
-
-        var rowTypeName = rowType.ToDisplayString();
-
-        stringBuilder.AppendLine($"                using var reader = await command.ExecuteReaderAsync(System.Data.CommandBehavior.Default, {cancellationTokenName});");
-
-        if (isCollection)
-        {
-            stringBuilder.AppendLine($$"""
-                            var list = new System.Collections.Generic.List<{{rowTypeName}}>();
-                            while (await reader.ReadAsync({{cancellationTokenName}}))
-                            {
-            """);
+             stringBuilder.AppendLine($"                var list = new System.Collections.Generic.List<{methodResultInfo.RowType.ToDisplayString()}>();");
+             stringBuilder.AppendLine($"                while (await reader.ReadAsync({cancellationTokenName}))");
+             stringBuilder.AppendLine("                {");
+             GenerateRowMapping(stringBuilder, methodResultInfo.RowType, "item", cancellationTokenName, "                    ");
+             stringBuilder.AppendLine("                    list.Add(item);");
+             stringBuilder.AppendLine("                }");
+             stringBuilder.AppendLine("                return list;");
         }
         else
         {
-            stringBuilder.AppendLine($$"""
-                            if (await reader.ReadAsync({{cancellationTokenName}}))
-                            {
-            """);
-        }
-
-        GenerateRowMapping(stringBuilder, rowType, "item", cancellationTokenName);
-
-        if (isCollection)
-        {
-            stringBuilder.AppendLine("""
-                                list.Add(item);
-                            }
-                            return list;
-            """);
-        }
-        else
-        {
-            stringBuilder.AppendLine("""
-                                return item;
-                            }
-                            return default!;
-            """);
+             stringBuilder.AppendLine($"                if (await reader.ReadAsync({cancellationTokenName}))");
+             stringBuilder.AppendLine("                {");
+             GenerateRowMapping(stringBuilder, methodResultInfo.RowType, "item", cancellationTokenName, "                    ");
+             stringBuilder.AppendLine("                    return item;");
+             stringBuilder.AppendLine("                }");
+             stringBuilder.AppendLine("                return default!;");
         }
     }
 
-    /// <summary>
-    /// Generates logic for complex scenarios involving Output parameters, ReturnValue, or wrapped ResultSets.
-    /// </summary>
-    private void GenerateComplexExecutionLogic(
+    private void GenerateComplexExecution(
         StringBuilder stringBuilder, 
         IMethodSymbol method, 
         MethodResultInfo methodResultInfo, 
         IGeneratorStrategy strategy, 
         string cancellationTokenName)
     {
-        var wrapperType = ((INamedTypeSymbol)method.ReturnType).TypeArguments[0];
-        var wrapperTypeName = wrapperType.ToDisplayString();
-        
-        // Retrieve procedure name for exception context
-        var procedureName = method.GetAttributes()
-            .FirstOrDefault(a => a.AttributeClass?.Name is EndpointAttribute or EndpointShortAttribute)?
-            .ConstructorArguments[0].Value?.ToString() ?? "Unknown";
+        var wrapperTypeString = ((INamedTypeSymbol)method.ReturnType).TypeArguments[0].ToDisplayString();
+        stringBuilder.AppendLine($"                var result = new {wrapperTypeString}();");
 
-        stringBuilder.AppendLine($"                var result = new {wrapperTypeName}();");
-
-        // 1. Generate OUTPUT variables and bind them
-        int outputIndex = 0;
-        var outputVariables = new List<(string VariableName, IPropertySymbol Property, string ParamName)>();
-
-        foreach (var outputProp in methodResultInfo.OutputProperties)
+        var outputIndex = 0;
+        var outputVariables = new List<(string VariableName, IPropertySymbol Property)>();
+        foreach (var output in methodResultInfo.OutputProperties)
         {
             var variableName = $"parameterOutput_{outputIndex++}";
-            strategy.GenerateOutputParameter(stringBuilder, "command", outputProp.ParameterName, outputProp.Property.Type, variableName);
-            outputVariables.Add((variableName, outputProp.Property, outputProp.ParameterName));
+            strategy.GenerateOutputParameter(stringBuilder, "command", output.ParameterName, output.Property.Type, variableName);
+            outputVariables.Add((variableName, output.Property));
         }
 
-        // 2. Generate RETURN_VALUE variable if required
-        string returnValueVariableName = "parameterReturnValue";
+        var returnValueVariableName = "parameterReturnValue";
         if (methodResultInfo.ReturnValueProperty is not null)
-        {
             strategy.GenerateReturnValueParameter(stringBuilder, "command", returnValueVariableName);
-        }
 
-        // 3. Execution Phase
         if (methodResultInfo.ResultSetProperty is not null)
         {
-            stringBuilder.AppendLine($$"""
-                            using (var reader = await command.ExecuteReaderAsync(System.Data.CommandBehavior.Default, {{cancellationTokenName}}))
-                            {
-            """);
+            stringBuilder.AppendLine($"                using (var reader = await command.ExecuteReaderAsync(CommandBehavior.Default, {cancellationTokenName}))");
+            stringBuilder.AppendLine("                {");
 
-            var resultPropertyType = methodResultInfo.ResultSetProperty.Type as INamedTypeSymbol;
-            bool isList = resultPropertyType is not null && (resultPropertyType.Name is "List" or "IEnumerable" or "IList");
-            
-            if (isList)
+            var propertyType = methodResultInfo.ResultSetProperty.Type as INamedTypeSymbol;
+            var isCollection = propertyType is not null && IsCollectionType(propertyType);
+            var itemType = isCollection ? propertyType!.TypeArguments[0] : propertyType!;
+
+            if (isCollection)
             {
-                var itemType = resultPropertyType!.TypeArguments[0];
-                stringBuilder.AppendLine($$"""
-                                var list = new System.Collections.Generic.List<{{itemType.ToDisplayString()}}>();
-                                while (await reader.ReadAsync({{cancellationTokenName}}))
-                                {
-                """);
-                
-                GenerateRowMapping(stringBuilder, itemType, "item", cancellationTokenName);
-                
-                stringBuilder.AppendLine($$"""
-                                    list.Add(item);
-                                }
-                                result.{{methodResultInfo.ResultSetProperty.Name}} = list;
-                """);
+                stringBuilder.AppendLine($"                    var list = new System.Collections.Generic.List<{itemType.ToDisplayString()}>();");
+                stringBuilder.AppendLine($"                    while (await reader.ReadAsync({cancellationTokenName}))");
+                stringBuilder.AppendLine("                    {");
+                GenerateRowMapping(stringBuilder, itemType, "item", cancellationTokenName, "                        ");
+                stringBuilder.AppendLine("                        list.Add(item);");
+                stringBuilder.AppendLine("                    }");
+                stringBuilder.AppendLine($"                    result.{methodResultInfo.ResultSetProperty.Name} = list;");
             }
             else
             {
-                 var itemType = resultPropertyType!;
-                 stringBuilder.AppendLine($$"""
-                                if (await reader.ReadAsync({{cancellationTokenName}}))
-                                {
-                 """);
-                 
-                 GenerateRowMapping(stringBuilder, itemType, "item", cancellationTokenName);
-                 
-                 stringBuilder.AppendLine($$"""
-                                    result.{{methodResultInfo.ResultSetProperty.Name}} = item;
-                                }
-                 """);
+                 stringBuilder.AppendLine($"                    if (await reader.ReadAsync({cancellationTokenName}))");
+                 stringBuilder.AppendLine("                    {");
+                 GenerateRowMapping(stringBuilder, itemType, "item", cancellationTokenName, "                        ");
+                 stringBuilder.AppendLine($"                        result.{methodResultInfo.ResultSetProperty.Name} = item;");
+                 stringBuilder.AppendLine("                    }");
             }
-            
-            stringBuilder.AppendLine("                }"); 
+            stringBuilder.AppendLine("                }");
         }
         else
         {
             stringBuilder.AppendLine($"                await command.ExecuteNonQueryAsync({cancellationTokenName});");
         }
 
-        // 4. Read OUTPUT values (Wrapped in Try-Catch)
         if (outputVariables.Count > 0 || methodResultInfo.ReturnValueProperty is not null)
         {
-            stringBuilder.AppendLine("""
-                            try
-                            {
-            """);
-
-            foreach (var (variableName, property, _) in outputVariables)
-            {
-                var propertyType = property.Type.ToDisplayString();
-                stringBuilder.AppendLine($"                    result.{property.Name} = Visor.Core.VisorConvert.Unbox<{propertyType}>({variableName}.Value);");
-            }
-
-            if (methodResultInfo.ReturnValueProperty is not null)
-            {
-                var propertyType = methodResultInfo.ReturnValueProperty.Type.ToDisplayString();
-                stringBuilder.AppendLine($"                    result.{methodResultInfo.ReturnValueProperty.Name} = Visor.Core.VisorConvert.Unbox<{propertyType}>({returnValueVariableName}.Value);");
-            }
+            stringBuilder.AppendLine("                try {");
+            foreach (var (variableName, property) in outputVariables)
+                stringBuilder.AppendLine($"                    result.{property.Name} = Visor.Core.VisorConvert.Unbox<{property.Type.ToDisplayString()}>({variableName}.Value);");
             
-            stringBuilder.AppendLine($$"""
-                            }
-                            catch (System.Exception ex)
-                            {
-                                throw new VisorMappingException($"Error mapping output parameters in '{command.CommandText}'. See inner exception for details.", "{{procedureName}}", ex);
-                            }
-            """);
+            if (methodResultInfo.ReturnValueProperty is not null)
+                stringBuilder.AppendLine($"                    result.{methodResultInfo.ReturnValueProperty.Name} = Visor.Core.VisorConvert.Unbox<{methodResultInfo.ReturnValueProperty.Type.ToDisplayString()}>({returnValueVariableName}.Value);");
+            
+            stringBuilder.AppendLine("                } catch (Exception ex) { throw new VisorMappingException(\"Error mapping outputs\", command.CommandText, ex); }");
         }
-
         stringBuilder.AppendLine("                return result;");
     }
 
-    /// <summary>
-    /// Generates the mapping logic to transform a DataReader row into a C# variable.
-    /// </summary>
-    private void GenerateRowMapping(
-        StringBuilder stringBuilder, 
-        ITypeSymbol rowType, 
-        string variableName, 
-        string cancellationTokenName)
+    private void GenerateRowMapping(StringBuilder stringBuilder, ITypeSymbol rowType, string variableName, string cancellationTokenName, string indent)
     {
-        var rowTypeName = rowType.ToDisplayString();
-
+        var typeString = rowType.ToDisplayString();
+        
         if (IsScalarType(rowType))
         {
-            // Scalar mapping (int, string, guid, etc.)
-            stringBuilder.AppendLine($$"""
-                                {{rowTypeName}} {{variableName}};
-                                if (!reader.IsDBNull(0))
-                                    {{variableName}} = await reader.GetFieldValueAsync<{{rowTypeName}}>(0, {{cancellationTokenName}});
-                                else
-                                    {{variableName}} = default;
-            """);
+            stringBuilder.AppendLine($"{indent}{typeString} {variableName};");
+            stringBuilder.AppendLine($"{indent}if (!reader.IsDBNull(0))");
+            stringBuilder.AppendLine($"{indent}    {variableName} = await reader.GetFieldValueAsync<{typeString}>(0, {cancellationTokenName});");
+            stringBuilder.AppendLine($"{indent}else");
+            stringBuilder.AppendLine($"{indent}    {variableName} = default!;");
         }
         else 
         {
-            // Complex Object mapping
-            stringBuilder.AppendLine($"                    var {variableName} = new {rowTypeName}();");
-                 
-            foreach (var property in rowType.GetMembers().OfType<IPropertySymbol>())
+            stringBuilder.AppendLine($"{indent}{typeString} {variableName} = new {typeString}();");
+            
+            var properties = rowType.GetMembers().OfType<IPropertySymbol>()
+                .Where(property => !property.IsStatic && property.DeclaredAccessibility == Accessibility.Public && property.SetMethod is not null)
+                .Select(property => new { Property = property, Attribute = property.GetAttributes().FirstOrDefault(attribute => attribute.AttributeClass?.Name is VisorColumnAttribute or "VisorColumn") })
+                .OrderBy(item => item.Attribute?.ConstructorArguments.FirstOrDefault().Value as int? ?? int.MaxValue)
+                .ToList();
+
+            foreach (var item in properties)
             {
-                if (property.IsStatic || property.DeclaredAccessibility != Accessibility.Public || property.SetMethod is null)
-                {
-                    continue;
-                }
-
+                var property = item.Property;
                 var databaseColumnName = property.Name;
-                    
-                // Check for [VisorColumn] attribute
-                var columnAttribute = property.GetAttributes()
-                    .FirstOrDefault(a => a.AttributeClass?.Name is VisorColumnAttribute or "VisorColumn");
-                    
-                if (columnAttribute is not null)
+                if (item.Attribute is not null)
                 {
-                    var nameArgument = columnAttribute.NamedArguments.FirstOrDefault(na => na.Key == "Name");
-                    if (nameArgument is { Key: not null, Value.Value: not null })
-                    {
-                        databaseColumnName = nameArgument.Value.Value.ToString();
-                    }
+                    var nameArgument = item.Attribute.NamedArguments.FirstOrDefault(argument => argument.Key == "Name");
+                    if (nameArgument.Value.Value != null) databaseColumnName = nameArgument.Value.Value.ToString();
                 }
 
-                // Generates individual try-catch blocks per column for robust mapping
-                stringBuilder.AppendLine($$"""
-                                try 
-                                {
-                                    int ordinal = reader.GetOrdinal("{{databaseColumnName}}");
-                                    if (!reader.IsDBNull(ordinal)) 
-                                    {
-                                        {{variableName}}.{{property.Name}} = await reader.GetFieldValueAsync<{{property.Type.ToDisplayString()}}>(ordinal, {{cancellationTokenName}});
-                                    }
-                                } 
-                                catch (IndexOutOfRangeException ex) 
-                                { 
-                                    throw new VisorMappingException(
-                                        $"Mapping error: Column '{{databaseColumnName}}' not found in result set. Check your DTO.", 
-                                        command.CommandText, 
-                                        ex);
-                                }
-                """);
+                stringBuilder.AppendLine($"{indent}try");
+                stringBuilder.AppendLine($"{indent}{{");
+                stringBuilder.AppendLine($"{indent}    int ordinal = reader.GetOrdinal(\"{databaseColumnName}\");");
+                stringBuilder.AppendLine($"{indent}    if (!reader.IsDBNull(ordinal))");
+                stringBuilder.AppendLine($"{indent}        {variableName}.{property.Name} = await reader.GetFieldValueAsync<{property.Type.ToDisplayString()}>(ordinal, {cancellationTokenName});");
+                stringBuilder.AppendLine($"{indent}}}");
+                stringBuilder.AppendLine($"{indent}catch (IndexOutOfRangeException)");
+                stringBuilder.AppendLine($"{indent}{{");
+                stringBuilder.AppendLine($"{indent}    throw;");
+                stringBuilder.AppendLine($"{indent}}}");
             }
         }
     }
@@ -513,75 +437,73 @@ public class RepositoryGenerator : IIncrementalGenerator
     private MethodResultInfo AnalyzeReturnType(ITypeSymbol typeSymbol)
     {
         var methodResultInfo = new MethodResultInfo();
-            
-        if (typeSymbol.SpecialType != SpecialType.None || typeSymbol.Name == "List" || typeSymbol is IArrayTypeSymbol)
+        if (typeSymbol is not INamedTypeSymbol { IsGenericType: true } namedTypeSymbol) return methodResultInfo;
+
+        if (namedTypeSymbol.Name == "IAsyncEnumerable")
         {
+            methodResultInfo.IsStreaming = true;
+            methodResultInfo.RowType = namedTypeSymbol.TypeArguments[0];
             return methodResultInfo;
         }
 
-        foreach (var property in typeSymbol.GetMembers().OfType<IPropertySymbol>())
+        if (namedTypeSymbol.Name == "Task")
         {
-            var attributes = property.GetAttributes();
+            if (namedTypeSymbol.TypeArguments[0] is not INamedTypeSymbol taskResultType) 
+                return methodResultInfo;
 
-            if (attributes.Any(a => a.AttributeClass?.Name == VisorResultSetAttribute)) 
-            { 
-                methodResultInfo.ResultSetProperty = property; 
-                methodResultInfo.IsComplexWrapper = true; 
-            }
-
-            if (attributes.Any(a => a.AttributeClass?.Name == VisorReturnValueAttribute)) 
-            { 
-                methodResultInfo.ReturnValueProperty = property; 
-                methodResultInfo.IsComplexWrapper = true; 
-            }
-                
-            var outputAttribute = attributes.FirstOrDefault(a => a.AttributeClass?.Name == VisorOutputAttribute);
-            if (outputAttribute is not null)
+            if (IsCollectionType(taskResultType))
             {
-                var parameterName = outputAttribute.ConstructorArguments.FirstOrDefault().Value?.ToString();
-                if (!string.IsNullOrEmpty(parameterName)) 
+                methodResultInfo.IsCollection = true;
+                methodResultInfo.RowType = taskResultType.TypeArguments[0];
+            }
+            else
+            {
+                methodResultInfo.RowType = taskResultType;
+            }
+            
+            foreach (var property in taskResultType.GetMembers().OfType<IPropertySymbol>())
+            {
+                var attributes = property.GetAttributes();
+                if (attributes.Any(attribute => attribute.AttributeClass?.Name == VisorResultSetAttribute)) 
                 { 
-                    methodResultInfo.OutputProperties.Add((property, parameterName!)); 
+                    methodResultInfo.ResultSetProperty = property; 
+                    methodResultInfo.IsComplexWrapper = true;
+                    methodResultInfo.RowType = null; 
+                }
+                if (attributes.Any(attribute => attribute.AttributeClass?.Name == VisorReturnValueAttribute)) 
+                { 
+                    methodResultInfo.ReturnValueProperty = property; 
+                    methodResultInfo.IsComplexWrapper = true; 
+                }
+                var outputAttribute = attributes.FirstOrDefault(attribute => attribute.AttributeClass?.Name == VisorOutputAttribute);
+                if (outputAttribute != null) 
+                { 
+                    methodResultInfo.OutputProperties.Add((property, outputAttribute.ConstructorArguments[0].Value?.ToString() ?? "")); 
                     methodResultInfo.IsComplexWrapper = true; 
                 }
             }
         }
         return methodResultInfo;
     }
-    
-    private string GetImplementationName(INamedTypeSymbol interfaceSymbol)
+
+    private bool IsCollectionType(INamedTypeSymbol typeSymbol)
     {
-        if (interfaceSymbol.Name.StartsWith("I") && 
-            interfaceSymbol.Name.Length > 1 && 
-            char.IsUpper(interfaceSymbol.Name[1]))
-        {
-            return interfaceSymbol.Name.Substring(1);
-        }
-            
-        return $"{interfaceSymbol.Name}Generated";
+        return typeSymbol is { IsGenericType: true, Name: "List" or "IList" or "IEnumerable" or "IReadOnlyList" or "ICollection" };
     }
 
-    private bool IsScalarType(ITypeSymbol type)
-    {
-        return type.SpecialType != SpecialType.None
-               || type.Name is "Guid" or "DateTime" or "DateTimeOffset" or "TimeSpan" or "Decimal";
-    }
+    private string GetImplementationName(INamedTypeSymbol namedTypeSymbol) 
+        => (namedTypeSymbol.Name.StartsWith("I") && namedTypeSymbol.Name.Length > 1 && char.IsUpper(namedTypeSymbol.Name[1])) ? namedTypeSymbol.Name.Substring(1) : $"{namedTypeSymbol.Name}Generated";
+
+    private bool IsScalarType(ITypeSymbol typeSymbol) 
+        => typeSymbol.SpecialType != SpecialType.None || typeSymbol.Name is "Guid" or "DateTime" or "DateTimeOffset" or "TimeSpan" or "Decimal";
 
     private static bool IsCandidate(SyntaxNode node) 
         => node is InterfaceDeclarationSyntax { AttributeLists.Count: > 0 };
 
-    private static INamedTypeSymbol? GetVisorInterface(GeneratorSyntaxContext context)
+    private static INamedTypeSymbol? GetVisorInterface(GeneratorSyntaxContext generatorSyntaxContext)
     {
-        var interfaceDeclaration = (InterfaceDeclarationSyntax)context.Node;
-            
-        if (context.SemanticModel.GetDeclaredSymbol(interfaceDeclaration) is not INamedTypeSymbol symbol)
-        {
-            return null;
-        }
-            
-        return symbol.GetAttributes()
-            .Any(a => a.AttributeClass?.Name is VisorAttribute or VisorShortAttribute) 
-            ? symbol 
-            : null;
+        var declaration = (InterfaceDeclarationSyntax)generatorSyntaxContext.Node;
+        if (generatorSyntaxContext.SemanticModel.GetDeclaredSymbol(declaration) is not INamedTypeSymbol namedTypeSymbol) return null;
+        return namedTypeSymbol.GetAttributes().Any(attribute => attribute.AttributeClass?.Name is VisorAttribute or VisorShortAttribute) ? namedTypeSymbol : null;
     }
 }

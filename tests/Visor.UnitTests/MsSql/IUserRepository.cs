@@ -20,4 +20,8 @@ public interface IUserRepository
     // 4. Table-Valued Parameter for bulk operations.
     [Endpoint("sp_ImportUsers")] 
     Task ImportUsers(List<MsUserTvp> users);
+
+    // 5. Streaming support (IAsyncEnumerable)
+    [Endpoint("sp_StreamUsers")]
+    IAsyncEnumerable<User> GetUsersStreamAsync(CancellationToken cancellationToken);
 }
