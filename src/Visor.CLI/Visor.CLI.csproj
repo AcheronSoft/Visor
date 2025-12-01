@@ -12,7 +12,12 @@
 
     <Description>Visor ORM Scaffolding Tool.
 Generates interfaces and DTOs from Database.</Description>
+    <PackageReadmeFile>README-CLI.md</PackageReadmeFile>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="../../README-CLI.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Visor.Abstractions\Visor.Abstractions.csproj" />

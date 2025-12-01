@@ -38,7 +38,8 @@ public class CodeEmitterTests
         // Assert
         Assert.Contains("public interface IUserRepository", code);
         Assert.Contains("[Endpoint(\"dbo.sp_GetUser\")]", code);
-        Assert.Contains("Task<List<SpGetUserResult>> SpGetUserAsync(int id);", code);
+        // "sp_" prefix is stripped by normalization logic
+        Assert.Contains("Task<List<GetUserResult>> GetUserAsync(int id);", code);
     }
 
     [Fact]
@@ -67,19 +68,21 @@ public class CodeEmitterTests
     }
 
     [Fact]
-    public void NormalizeMethodName_ShouldSanitizeKeywords()
+    public void NormalizeMethodName_ShouldPascalCaseAndSanitize()
     {
         // Act
         var name = CodeEmitter.NormalizeMethodName("class");
 
         // Assert
-        Assert.Equal("@class", name);
+        // "class" -> "Class", which is valid.
+        Assert.Equal("Class", name);
     }
 
     [Fact]
     public void NormalizeParameterName_ShouldSanitizeKeywords()
     {
         // Act
+        // Parameter names are camelCased. "int" -> "int". "int" is keyword -> "@int"
         var name = CodeEmitter.NormalizeParameterName("int");
 
         // Assert
