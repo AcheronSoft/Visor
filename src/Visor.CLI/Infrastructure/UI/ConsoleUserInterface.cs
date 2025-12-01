@@ -22,7 +22,7 @@ public class ConsoleUserInterface : IUserInterface
                 .AddChoices(choices));
     }
 
-    public T Select<T>(string prompt, IEnumerable<T> choices, Func<T, string> displayConverter)
+    public T Select<T>(string prompt, IEnumerable<T> choices, Func<T, string> displayConverter) where T : notnull
     {
         return AnsiConsole.Prompt(
             new SelectionPrompt<T>()
@@ -31,7 +31,7 @@ public class ConsoleUserInterface : IUserInterface
                 .UseConverter(displayConverter));
     }
 
-    public List<T> MultiSelect<T>(string prompt, IEnumerable<T> choices, Func<T, string> displayConverter)
+    public List<T> MultiSelect<T>(string prompt, IEnumerable<T> choices, Func<T, string> displayConverter) where T : notnull
     {
         return AnsiConsole.Prompt(
             new MultiSelectionPrompt<T>()
