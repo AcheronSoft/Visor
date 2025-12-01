@@ -70,6 +70,7 @@ Visor is modular. You typically only need to install a **Provider** and the **Ge
 | **[Visor.SqlServer](https://www.nuget.org/packages/Visor.SqlServer/)** | **Main Provider.** Includes TVP streaming & async logic. | [![NuGet](https://img.shields.io/nuget/v/Visor.SqlServer.svg)](https://www.nuget.org/packages/Visor.SqlServer/) |
 | **[Visor.PostgreSql](https://www.nuget.org/packages/Visor.PostgreSql/)** | **Postgres Provider.** Supports Arrays & Composite Types. | [![NuGet](https://img.shields.io/nuget/v/Visor.PostgreSql.svg)](https://www.nuget.org/packages/Visor.PostgreSql/) |
 | **[Visor.Generators](https://www.nuget.org/packages/Visor.Generators/)** | **Required.** Roslyn Source Generators (Compile-time magic). | [![NuGet](https://img.shields.io/nuget/v/Visor.Generators.svg)](https://www.nuget.org/packages/Visor.Generators/) |
+| **[Visor.CLI](https://www.nuget.org/packages/Visor.CLI/)** | **Scaffolding Tool.** Generates code from DB. `dotnet tool install -g Visor.CLI` | [![NuGet](https://img.shields.io/nuget/v/Visor.CLI.svg)](https://www.nuget.org/packages/Visor.CLI/) |
 | [Visor.Abstractions](https://www.nuget.org/packages/Visor.Abstractions/) | Attributes & Interfaces only. Keep your Domain clean. | [![NuGet](https://img.shields.io/nuget/v/Visor.Abstractions.svg)](https://www.nuget.org/packages/Visor.Abstractions/) |
 | [Visor.Core](https://www.nuget.org/packages/Visor.Core/) | Shared runtime infrastructure (Internal). | [![NuGet](https://img.shields.io/nuget/v/Visor.Core.svg)](https://www.nuget.org/packages/Visor.Core/) |
 
@@ -286,12 +287,13 @@ We are actively bridging the gap between raw speed and developer experience.
 - [x] **Core Features:** MSSQL & PostgreSQL Support, TVP Streaming, Transactions.
 - [x] **Complex Mapping:** Output Parameters, Return Values, Composite Types.
 - [x] **NuGet Packaging:** automated CI/CD flow.
+- [ ] **Railway Oriented Programming:** Native support for `Result<T>` and functional flows.
 - [ ] **Resiliency:** Retry policies & Circuit Breaker integration.
 - [ ] **Command Config:** Per-command Timeouts & Behaviors.
 - [ ] **Observability:** Advanced OpenTelemetry Tracing, Metrics & Logging.
 - [ ] **More Providers:** Oracle, MySQL, CosmosDB, MongoDB.
 - [ ] **Configuration:** Json-based Database configuration support.
-- [ ] **CLI Tool:** Database-First scaffolding.
+- [x] **CLI Tool:** Database-First scaffolding. (See [README-CLI.md](README-CLI.md))
 
 ---
 
