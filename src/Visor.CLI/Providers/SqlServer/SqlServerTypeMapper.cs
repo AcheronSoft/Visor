@@ -16,26 +16,26 @@ internal static class SqlServerTypeMapper
             "int"              => VisorDbType.Int32,
             "smallint"         => VisorDbType.Int16,
             "tinyint"          => VisorDbType.Byte,
-            
+
             "bit"              => VisorDbType.Boolean,
-            
+
             "decimal"          => VisorDbType.Decimal,
             "numeric"          => VisorDbType.Decimal,
             "money"            => VisorDbType.Decimal,
             "smallmoney"       => VisorDbType.Decimal,
-            
+
             "float"            => VisorDbType.Double, // SQL Float is 8 bytes (Double)
             "real"             => VisorDbType.Single, // SQL Real is 4 bytes (Single/float)
-            
+
             "datetime"         => VisorDbType.DateTime,
             "datetime2"        => VisorDbType.DateTime,
             "smalldatetime"    => VisorDbType.DateTime,
-            "date"             => VisorDbType.Date, 
+            "date"             => VisorDbType.Date,
             "time"             => VisorDbType.Time,
             "datetimeoffset"   => VisorDbType.DateTimeOffset,
-            
+
             "uniqueidentifier" => VisorDbType.Guid,
-            
+
             "char"             => VisorDbType.String,
             "nchar"            => VisorDbType.String,
             "varchar"          => VisorDbType.String,
@@ -43,13 +43,13 @@ internal static class SqlServerTypeMapper
             "text"             => VisorDbType.String,
             "ntext"            => VisorDbType.String,
             "xml"              => VisorDbType.String,
-            
+
             "binary"           => VisorDbType.Binary,
             "varbinary"        => VisorDbType.Binary,
             "image"            => VisorDbType.Binary,
             "rowversion"       => VisorDbType.Binary,
             "timestamp"        => VisorDbType.Binary,
-            
+
             _                  => VisorDbType.Object
         };
     }

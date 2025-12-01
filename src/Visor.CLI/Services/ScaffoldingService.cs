@@ -1,120 +1,176 @@
-﻿using System.Reflection;
-using Spectre.Console;
+using System.Reflection;
 using Visor.Abstractions;
 using Visor.Abstractions.Enums;
+using Visor.CLI.Configuration;
 using Visor.CLI.Generators;
+using Visor.CLI.Infrastructure.UI;
 using Visor.CLI.Metadata;
 using Visor.CLI.Providers.PostgreSql;
 using Visor.CLI.Providers.SqlServer;
 
 namespace Visor.CLI.Services;
 
-public class ScaffoldingService
+public class ScaffoldingService(IUserInterface userInterface)
 {
-    // Helper record for menu items
     private record MenuItem(string DisplayName, ProcedureDefinition? Procedure, bool IsExit, bool IsAll);
 
     public async Task ExecuteAsync(ScaffoldingContext context)
     {
-        // 1. Determine Mode (Interactive vs Headless)
-        bool isInteractive = string.IsNullOrEmpty(context.Provider) || string.IsNullOrEmpty(context.ConnectionString);
+        var configService = new ConfigurationService(userInterface);
+        var loadedConfig = await configService.LoadAsync();
 
-        var providerName = context.Provider;
-        var connectionString = context.ConnectionString;
+        // Merge configuration: CLI Args > Config File > Null
+        var providerName = context.Provider ?? loadedConfig?.Provider;
+        var connectionString = context.ConnectionString ?? loadedConfig?.ConnectionString;
         var outputDirectory = context.OutputDirectory;
         var namespaceName = context.NamespaceName;
 
-        // Interactive: Ask for missing details
-        if (string.IsNullOrEmpty(providerName))
+        // If Output/Namespace were defaulted in CLI (via System.CommandLine defaults),
+        // we might prefer Config File values if they differ from the hardcoded defaults.
+        // However, distinguishing "user didn't provide arg" vs "default arg" is tricky with System.CommandLine.
+        // For now, let's assume if the user *explicitly* provided CLI args, they win.
+        // But since context.OutputDirectory has a default value "./Generated", we might want to check if it matches the default.
+        // A simpler approach: if the Config has a value, and the CLI value is the default "./Generated", maybe prefer config?
+        // Let's stick to the simpler rule: CLI args (even defaults) take precedence,
+        // UNLESS we want to strictly follow "Config overrides Default".
+        // Ideally, the Context should tell us if the value was set by user.
+        // Given we don't have that info easily, let's just use Config if Context is using defaults.
+
+        if (Path.GetFileName(outputDirectory) == "Generated" && !string.IsNullOrEmpty(loadedConfig?.Output))
         {
-            providerName = AnsiConsole.Prompt(
-                new SelectionPrompt<string>()
-                    .Title("Select database [green]provider[/]:")
-                    .AddChoices("mssql", "postgres"));
+            outputDirectory = loadedConfig.Output!;
         }
 
+        if (namespaceName == "Visor.Generated" && !string.IsNullOrEmpty(loadedConfig?.Namespace))
+        {
+            namespaceName = loadedConfig.Namespace!;
+        }
+
+        bool isInteractive = string.IsNullOrEmpty(providerName) || string.IsNullOrEmpty(connectionString);
+
+        if (isInteractive)
+        {
+            userInterface.ShowHeader();
+        }
+
+        // 1. Resolve Provider
+        VisorProvider visorProvider;
+        if (string.IsNullOrEmpty(providerName))
+        {
+            var providerChoice = userInterface.Select("Select database [green]provider[/]:", ["mssql", "postgres"]);
+            visorProvider = ParseProvider(providerChoice);
+            providerName = providerChoice; // Store for saving
+        }
+        else
+        {
+            try
+            {
+                visorProvider = ParseProvider(providerName);
+            }
+            catch (ArgumentException exception)
+            {
+                userInterface.MarkupLine($"[red]Error:[/] {exception.Message}");
+                return;
+            }
+        }
+
+        // 2. Resolve Connection String
         if (string.IsNullOrEmpty(connectionString))
         {
-            var input = AnsiConsole.Ask<string>("Enter [green]Connection String[/]:");
-            connectionString = input.Trim().Trim('"');
+            connectionString = userInterface.Ask("Enter [green]Connection String[/]:").Trim().Trim('"');
         }
         else
         {
             connectionString = connectionString.Trim().Trim('"');
         }
 
-        AnsiConsole.Write(new FigletText("VISOR").Color(Color.Cyan1));
-
         try
         {
-            // 2. Select Loader Strategy
-            ISchemaLoader schemaLoader;
-            VisorProvider visorProvider;
-
-            if (providerName!.Equals("mssql", StringComparison.OrdinalIgnoreCase))
+            ISchemaLoader schemaLoader = visorProvider switch
             {
-                schemaLoader = new SqlServerSchemaLoader(connectionString!);
-                visorProvider = VisorProvider.SqlServer;
-            }
-            else if (providerName.Equals("postgres", StringComparison.OrdinalIgnoreCase))
-            {
-                schemaLoader = new PostgreSqlSchemaLoader(connectionString!);
-                visorProvider = VisorProvider.PostgreSql;
-            }
-            else
-            {
-                AnsiConsole.MarkupLine($"[red]Error:[/] Unsupported provider '{providerName}'.");
-                return;
-            }
+                VisorProvider.SqlServer => new SqlServerSchemaLoader(connectionString),
+                VisorProvider.PostgreSql => new PostgreSqlSchemaLoader(connectionString),
+                _ => throw new NotSupportedException($"Provider {visorProvider} is not supported.")
+            };
 
             // 3. Load Schema
             var allProcedures = new List<ProcedureDefinition>();
             var tableTypes = new List<TableTypeDefinition>();
 
-            await AnsiConsole.Status()
-                .Spinner(Spinner.Known.Dots)
-                .StartAsync($"Connecting to [bold]{providerName.ToUpper()}[/]...", async statusContext =>
-                {
-                    statusContext.Status("Scanning database...");
-                    allProcedures = await schemaLoader.LoadProceduresAsync(CancellationToken.None);
-                    tableTypes = await schemaLoader.LoadTableTypesAsync(CancellationToken.None);
-                });
+            await userInterface.Status($"Connecting to [bold]{visorProvider.ToString().ToUpper()}[/]...", async () =>
+            {
+                allProcedures = await schemaLoader.LoadProceduresAsync(CancellationToken.None);
+                tableTypes = await schemaLoader.LoadTableTypesAsync(CancellationToken.None);
+            });
 
             if (allProcedures.Count == 0)
             {
-                AnsiConsole.MarkupLine("[yellow]No stored procedures found.[/]");
+                userInterface.MarkupLine("[yellow]No stored procedures found.[/]");
                 return;
             }
 
-            // 4. Execution Logic
+            // 4. Offer to Save Configuration (if interactive and config changed/missing)
+            if (isInteractive)
+            {
+                // Only ask if we don't have a config or if values differ
+                bool configExists = configService.Exists();
+                bool valuesChanged = loadedConfig?.Provider != providerName || loadedConfig?.ConnectionString != connectionString;
+
+                if (!configExists || valuesChanged)
+                {
+                    var saveChoice = userInterface.Select("Save this configuration to [bold]visor.json[/]?", ["Yes", "No"]);
+                    if (saveChoice == "Yes")
+                    {
+                        var newConfig = new VisorConfiguration
+                        {
+                            Provider = providerName,
+                            ConnectionString = connectionString,
+                            Output = outputDirectory,
+                            Namespace = namespaceName
+                        };
+                        await configService.SaveAsync(newConfig);
+                    }
+                }
+            }
+
+            // 5. Execute Generation
             if (!isInteractive)
             {
-                // HEADLESS MODE: Generate everything immediately
-                AnsiConsole.MarkupLine($"[grey]Non-interactive mode. Generating all {allProcedures.Count} procedures...[/]");
+                userInterface.MarkupLine($"[grey]Non-interactive mode. Generating all {allProcedures.Count} procedures...[/]");
                 await GenerateArtifactsAsync(
-                    outputDirectory, 
-                    namespaceName, 
-                    visorProvider, 
-                    allProcedures, 
+                    outputDirectory,
+                    namespaceName,
+                    visorProvider,
+                    allProcedures,
                     tableTypes,
                     overwriteInterface: true);
             }
             else
             {
-                // INTERACTIVE MENU LOOP
                 await RunInteractiveMenuAsync(
-                    allProcedures, 
-                    tableTypes, 
-                    outputDirectory, 
-                    namespaceName, 
+                    allProcedures,
+                    tableTypes,
+                    outputDirectory,
+                    namespaceName,
                     visorProvider);
             }
         }
         catch (Exception exception)
         {
-            AnsiConsole.WriteException(exception);
-            Environment.ExitCode = 1;
+            userInterface.WriteException(exception);
+            throw;
         }
+    }
+
+    private VisorProvider ParseProvider(string providerName)
+    {
+        if (providerName.Equals("mssql", StringComparison.OrdinalIgnoreCase))
+            return VisorProvider.SqlServer;
+
+        if (providerName.Equals("postgres", StringComparison.OrdinalIgnoreCase))
+            return VisorProvider.PostgreSql;
+
+        throw new ArgumentException($"Unsupported provider '{providerName}'.");
     }
 
     private async Task RunInteractiveMenuAsync(
@@ -124,67 +180,42 @@ public class ScaffoldingService
         string namespaceName,
         VisorProvider provider)
     {
-        while (true)
+        // For the interactive menu, we now support selecting multiple procedures at once
+        // or a dedicated option to select all.
+
+        // Define a wrapper for list items to display nicely
+        var procedureItems = allProcedures.Select(procedure =>
         {
-            // Build Menu Options
-            var menuOptions = new List<MenuItem>();
+            var typeLabel = procedure.ResultSet != null ? "[blue]Map[/]" : "[grey]Void[/]";
+            return new MenuItem($"{procedure.Schema}.{procedure.Name} ({typeLabel})", procedure, IsExit: false, IsAll: false);
+        }).ToList();
 
-            // 1. "Generate All" goes first - usually the most common action
-            menuOptions.Add(new MenuItem("[green]Generate ALL Procedures[/]", null, IsExit: false, IsAll: true));
-            
-            // 2. Separator/Group logic isn't strictly needed, but let's list procedures
-            foreach (var procedure in allProcedures)
-            {
-                var typeLabel = procedure.ResultSet != null ? "[blue]Map[/]" : "[grey]Void[/]";
-                menuOptions.Add(new MenuItem($"{procedure.Schema}.{procedure.Name} ({typeLabel})", procedure, IsExit: false, IsAll: false));
-            }
+        // Prompt user
+        var selectedItems = userInterface.MultiSelect(
+            $"Select procedures to generate ([bold]{allProcedures.Count}[/] available):",
+            procedureItems,
+            item => item.DisplayName);
 
-            // 3. "Exit" goes last
-            menuOptions.Add(new MenuItem("[red]Exit[/]", null, IsExit: true, IsAll: false));
-
-            // Show Prompt
-            var selection = AnsiConsole.Prompt(
-                new SelectionPrompt<MenuItem>()
-                    .Title($"Select action ([bold]{allProcedures.Count}[/] procedures found):")
-                    .PageSize(15)
-                    .MoreChoicesText("[grey](Move up and down for more)[/]")
-                    .AddChoices(menuOptions)
-                    .UseConverter(item => item.DisplayName));
-
-            if (selection.IsExit)
-            {
-                AnsiConsole.MarkupLine("[yellow]Goodbye![/]");
-                break;
-            }
-
-            if (selection.IsAll)
-            {
-                await GenerateArtifactsAsync(outputDirectory, namespaceName, provider, allProcedures, tableTypes, overwriteInterface: true);
-                
-                // UX: Break loop after full generation
-                AnsiConsole.MarkupLine("[bold green]All procedures generated successfully![/]");
-                break; 
-            }
-            else if (selection.Procedure != null)
-            {
-                // Single Selection Logic
-                var singleList = new List<ProcedureDefinition> { selection.Procedure };
-                
-                await GenerateArtifactsAsync(outputDirectory, namespaceName, provider, singleList, tableTypes, overwriteInterface: true);
-                
-                AnsiConsole.MarkupLine($"[green]Generated {selection.Procedure.Name}.[/]");
-                
-                await Task.Delay(800); 
-                Console.Clear();
-            }
+        if (selectedItems.Count == 0)
+        {
+            userInterface.MarkupLine("[yellow]No procedures selected. Exiting.[/]");
+            return;
         }
+
+        var selectedProcedures = selectedItems
+            .Where(item => item.Procedure != null)
+            .Select(item => item.Procedure!)
+            .ToList();
+
+        await GenerateArtifactsAsync(outputDirectory, namespaceName, provider, selectedProcedures, tableTypes, overwriteInterface: true);
+        userInterface.MarkupLine($"[bold green]Successfully generated {selectedProcedures.Count} procedures![/]");
     }
 
     private async Task GenerateArtifactsAsync(
         string outputDirectory,
         string namespaceName,
-        VisorProvider provider, 
-        List<ProcedureDefinition> procedures, 
+        VisorProvider provider,
+        List<ProcedureDefinition> procedures,
         List<TableTypeDefinition> tableTypes,
         bool overwriteInterface)
     {
@@ -194,34 +225,33 @@ public class ScaffoldingService
         var codeEmitter = new CodeEmitter(toolVersion);
         Directory.CreateDirectory(outputDirectory);
 
-        await AnsiConsole.Status()
-            .StartAsync("Generating...", async _ =>
+        await userInterface.Status("Generating...", async () =>
+        {
+            // 1. Generate Interface
+            if (overwriteInterface)
             {
-                // 1. Generate Interface
-                if (overwriteInterface)
-                {
-                    var interfaceCode = codeEmitter.GenerateInterface("IRepository", namespaceName, provider, procedures);
-                    await File.WriteAllTextAsync(Path.Combine(outputDirectory, "IRepository.cs"), interfaceCode);
-                }
+                var interfaceCode = codeEmitter.GenerateInterface("IRepository", namespaceName, provider, procedures);
+                await File.WriteAllTextAsync(Path.Combine(outputDirectory, "IRepository.cs"), interfaceCode);
+            }
 
-                // 2. Generate Table Types
-                foreach (var tableType in tableTypes)
-                {
-                    var dtoCode = codeEmitter.GenerateTableTypeClass(tableType, namespaceName);
-                    var className = CodeEmitter.NormalizeClassName(tableType.Name);
-                    await File.WriteAllTextAsync(Path.Combine(outputDirectory, $"{className}.cs"), dtoCode);
-                }
+            // 2. Generate Table Types
+            foreach (var tableType in tableTypes)
+            {
+                var dtoCode = codeEmitter.GenerateTableTypeClass(tableType, namespaceName);
+                var className = CodeEmitter.NormalizeClassName(tableType.Name);
+                await File.WriteAllTextAsync(Path.Combine(outputDirectory, $"{className}.cs"), dtoCode);
+            }
 
-                // 3. Generate Result Sets
-                foreach (var procedure in procedures)
+            // 3. Generate Result Sets
+            foreach (var procedure in procedures)
+            {
+                if (procedure.ResultSet != null)
                 {
-                    if (procedure.ResultSet != null)
-                    {
-                        var resultCode = codeEmitter.GenerateResultSetClass(procedure, namespaceName);
-                        var baseName = CodeEmitter.NormalizeClassName(procedure.Name);
-                        await File.WriteAllTextAsync(Path.Combine(outputDirectory, $"{baseName}Result.cs"), resultCode);
-                    }
+                    var resultCode = codeEmitter.GenerateResultSetClass(procedure, namespaceName);
+                    var baseName = CodeEmitter.NormalizeClassName(procedure.Name);
+                    await File.WriteAllTextAsync(Path.Combine(outputDirectory, $"{baseName}Result.cs"), resultCode);
                 }
-            });
+            }
+        });
     }
 }

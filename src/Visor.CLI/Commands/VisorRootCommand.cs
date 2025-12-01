@@ -1,4 +1,5 @@
-﻿using System.CommandLine;
+using System.CommandLine;
+using Visor.CLI.Infrastructure.UI;
 using Visor.CLI.Services;
 
 namespace Visor.CLI.Commands;
@@ -7,13 +8,8 @@ public class VisorRootCommand : RootCommand
 {
     public VisorRootCommand() : base("Visor ORM CLI Tool")
     {
-        // 1. Define the single action command "run"
         var runCommand = new Command("run", "Generates ORM code from database schema.");
-
-        // 2. Configure options and handler for this command
         ConfigureCommand(runCommand);
-
-        // 3. Register it
         AddCommand(runCommand);
     }
 
@@ -48,8 +44,20 @@ public class VisorRootCommand : RootCommand
             var fullOutputPath = Path.Combine(currentTerminalPath, output);
 
             var context = new ScaffoldingContext(provider, connectionString, fullOutputPath, namespaceName);
-            var service = new ScaffoldingService();
-            await service.ExecuteAsync(context);
+            var userInterface = new ConsoleUserInterface();
+            var service = new ScaffoldingService(userInterface);
+
+            try
+            {
+                await service.ExecuteAsync(context);
+            }
+            catch (Exception exception)
+            {
+                userInterface.MarkupLine($"[red]Critical Error:[/] {exception.Message}");
+                // In non-interactive mode, this ensures the CI fails if something goes wrong.
+                Environment.ExitCode = 1;
+            }
+
         }, providerOption, connectionOption, outputOption, namespaceOption);
     }
 }

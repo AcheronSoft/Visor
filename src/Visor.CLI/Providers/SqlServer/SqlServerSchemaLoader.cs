@@ -15,8 +15,8 @@ public class SqlServerSchemaLoader(string connectionString) : ISchemaLoader
 
         // 1. Get list of all procedures (excluding system ones)
         var procedureListQuery = @"
-            SELECT 
-                s.name AS SchemaName, 
+            SELECT
+                s.name AS SchemaName,
                 p.name AS ProcedureName,
                 p.object_id AS ObjectId
             FROM sys.procedures p
@@ -31,8 +31,8 @@ public class SqlServerSchemaLoader(string connectionString) : ISchemaLoader
         while (await reader.ReadAsync(cancellationToken))
         {
             basicProcedures.Add((
-                reader.GetString(0), 
-                reader.GetString(1), 
+                reader.GetString(0),
+                reader.GetString(1),
                 reader.GetInt32(2)
             ));
         }
@@ -59,13 +59,13 @@ public class SqlServerSchemaLoader(string connectionString) : ISchemaLoader
     public async Task<List<TableTypeDefinition>> LoadTableTypesAsync(CancellationToken cancellationToken)
     {
         var tableTypes = new List<TableTypeDefinition>();
-        
+
         await using var connection = new SqlConnection(connectionString);
         await connection.OpenAsync(cancellationToken);
 
         // Query to get User-Defined Table Types and their columns
         var query = @"
-            SELECT 
+            SELECT
                 s.name AS SchemaName,
                 tt.name AS TypeName,
                 c.name AS ColumnName,
@@ -96,15 +96,15 @@ public class SqlServerSchemaLoader(string connectionString) : ISchemaLoader
             var sqlDataType = reader.GetString(3);
             var isNullable = reader.GetBoolean(4);
             var order = reader.GetInt32(5);
-            
+
             if (typeName != currentType || schema != currentSchema)
             {
                 if (currentType != null)
                 {
-                    tableTypes.Add(new TableTypeDefinition 
-                    { 
-                        Schema = currentSchema!, 
-                        Name = currentType, 
+                    tableTypes.Add(new TableTypeDefinition
+                    {
+                        Schema = currentSchema!,
+                        Name = currentType,
                         Columns = [..currentColumns]
                     });
                 }
@@ -124,11 +124,11 @@ public class SqlServerSchemaLoader(string connectionString) : ISchemaLoader
 
         if (currentType != null)
         {
-            tableTypes.Add(new TableTypeDefinition 
-            { 
-                Schema = currentSchema!, 
-                Name = currentType, 
-                Columns = currentColumns 
+            tableTypes.Add(new TableTypeDefinition
+            {
+                Schema = currentSchema!,
+                Name = currentType,
+                Columns = currentColumns
             });
         }
 
@@ -136,17 +136,17 @@ public class SqlServerSchemaLoader(string connectionString) : ISchemaLoader
     }
 
     private async Task<List<ParameterDefinition>> LoadParametersAsync(
-        SqlConnection connection, 
-        int objectId, 
+        SqlConnection connection,
+        int objectId,
         CancellationToken cancellationToken)
     {
         var parameters = new List<ParameterDefinition>();
-        
+
         var query = @"
-            SELECT 
-                p.name, 
-                t.name AS type_name, 
-                p.is_output, 
+            SELECT
+                p.name,
+                t.name AS type_name,
+                p.is_output,
                 p.parameter_id,
                 TYPE_NAME(p.user_type_id) AS user_type_name,
                 OBJECT_SCHEMA_NAME(t.default_object_id) as type_schema,
@@ -158,9 +158,9 @@ public class SqlServerSchemaLoader(string connectionString) : ISchemaLoader
 
         await using var command = new SqlCommand(query, connection);
         command.Parameters.AddWithValue("@ObjectId", objectId);
-        
+
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        
+
         while (await reader.ReadAsync(cancellationToken))
         {
             var parameterName = reader.GetString(0).TrimStart('@');
@@ -168,11 +168,11 @@ public class SqlServerSchemaLoader(string connectionString) : ISchemaLoader
             var isOutput = reader.GetBoolean(2);
             var order = reader.GetInt32(3);
             var isTableType = reader.GetBoolean(6);
-            
+
             string? userDefinedTypeName = null;
             string? userDefinedTypeSchema = null;
 
-            if (isTableType) 
+            if (isTableType)
             {
                 userDefinedTypeName = sqlTypeName;
                 // Schema extraction left null; generator matches by name or we can enhance logic later.
@@ -183,7 +183,7 @@ public class SqlServerSchemaLoader(string connectionString) : ISchemaLoader
                 Name = parameterName,
                 DbType = SqlServerTypeMapper.Map(sqlTypeName),
                 IsOutput = isOutput,
-                IsNullable = true, 
+                IsNullable = true,
                 Order = order,
                 UserDefinedTypeName = userDefinedTypeName,
                 UserDefinedTypeSchema = userDefinedTypeSchema
@@ -194,24 +194,24 @@ public class SqlServerSchemaLoader(string connectionString) : ISchemaLoader
     }
 
     private async Task<ResultSetDefinition?> LoadResultSetAsync(
-        SqlConnection connection, 
-        string schema, 
-        string procedureName, 
+        SqlConnection connection,
+        string schema,
+        string procedureName,
         CancellationToken cancellationToken)
     {
         var query = "EXEC sp_describe_first_result_set @tsql = @ProcedureCommand";
-        
+
         await using var command = new SqlCommand(query, connection);
         command.Parameters.AddWithValue("@ProcedureCommand", $"{schema}.{procedureName}");
 
-        try 
+        try
         {
             await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-            
+
             var columnDefinitions = new List<ColumnDefinition>();
             while (await reader.ReadAsync(cancellationToken))
             {
-                if (reader.IsDBNull(reader.GetOrdinal("name"))) 
+                if (reader.IsDBNull(reader.GetOrdinal("name")))
                 {
                     continue;
                 }
@@ -230,7 +230,7 @@ public class SqlServerSchemaLoader(string connectionString) : ISchemaLoader
                 });
             }
 
-            if (columnDefinitions.Count == 0) 
+            if (columnDefinitions.Count == 0)
             {
                 return null;
             }
@@ -240,7 +240,7 @@ public class SqlServerSchemaLoader(string connectionString) : ISchemaLoader
         catch (SqlException)
         {
             // Dynamic SQL or temp tables cannot be statically analyzed.
-            return null; 
+            return null;
         }
     }
 }

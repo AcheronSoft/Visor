@@ -9,8 +9,11 @@ public record ParameterDefinition
     public bool IsOutput { get; init; }
     public bool IsNullable { get; init; }
     public int Order { get; init; }
-    
+
     // For User-Defined Types (TVP)
     public string? UserDefinedTypeSchema { get; init; }
     public string? UserDefinedTypeName { get; init; }
+
+    // For primitive arrays (Postgres)
+    public bool IsCollection { get; init; }
 }

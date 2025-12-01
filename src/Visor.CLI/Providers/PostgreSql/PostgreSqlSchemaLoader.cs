@@ -15,7 +15,7 @@ public class PostgreSqlSchemaLoader(string connectionString) : ISchemaLoader
 
         // 1. Get Routines (Functions/Procedures)
         var query = @"
-            SELECT 
+            SELECT
                 r.specific_schema,
                 r.routine_name,
                 r.specific_name,
@@ -45,9 +45,9 @@ public class PostgreSqlSchemaLoader(string connectionString) : ISchemaLoader
         foreach (var procedure in basicProcedures)
         {
             var parameters = await LoadParametersAsync(connection, procedure.SpecificName, cancellationToken);
-            
+
             var resultSet = ExtractResultSetFromParameters(parameters);
-            
+
             var inputParameters = parameters
                 .Where(parameter => parameter is { IsOutput: false, Order: >= 0 })
                 .ToList();
@@ -72,7 +72,7 @@ public class PostgreSqlSchemaLoader(string connectionString) : ISchemaLoader
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
 
         var query = @"
-            SELECT 
+            SELECT
                 n.nspname AS schema_name,
                 t.typname AS type_name,
                 a.attname AS column_name,
@@ -148,9 +148,9 @@ public class PostgreSqlSchemaLoader(string connectionString) : ISchemaLoader
         CancellationToken cancellationToken)
     {
         var parameters = new List<ParameterDefinition>();
-        
+
         var query = @"
-            SELECT 
+            SELECT
                 parameter_name,
                 data_type,
                 parameter_mode,
@@ -163,7 +163,7 @@ public class PostgreSqlSchemaLoader(string connectionString) : ISchemaLoader
 
         await using var command = new NpgsqlCommand(query, connection);
         command.Parameters.AddWithValue("@SpecificName", specificName);
-        
+
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
 
         while (await reader.ReadAsync(cancellationToken))
@@ -176,25 +176,45 @@ public class PostgreSqlSchemaLoader(string connectionString) : ISchemaLoader
             var userDefinedTypeSchema = reader.GetString(5);
 
             var isOutput = mode is "OUT" or "INOUT" or "TABLE";
-            
+
             string? normalizedTypeName = null;
             string? normalizedTypeSchema = null;
 
-            if (dataType is "ARRAY" or "USER-DEFINED")
+            if (dataType == "ARRAY")
             {
-                normalizedTypeName = userDefinedTypeName.TrimStart('_');
+                 var baseType = userDefinedTypeName.TrimStart('_');
+                 var baseVisorType = PostgreSqlTypeMapper.Map(baseType);
+
+                 if (baseVisorType == VisorDbType.Object)
+                 {
+                     normalizedTypeName = baseType;
+                     normalizedTypeSchema = userDefinedTypeSchema;
+                 }
+            }
+            else if (dataType == "USER-DEFINED")
+            {
+                normalizedTypeName = userDefinedTypeName;
                 normalizedTypeSchema = userDefinedTypeSchema;
+            }
+
+            var mappedType = PostgreSqlTypeMapper.Map(dataType == "ARRAY" ? userDefinedTypeName : dataType);
+            var isPrimitiveArray = dataType == "ARRAY" && mappedType != VisorDbType.Object;
+
+            if (isPrimitiveArray)
+            {
+                normalizedTypeName = null;
             }
 
             parameters.Add(new ParameterDefinition
             {
                 Name = name,
-                DbType = PostgreSqlTypeMapper.Map(dataType == "ARRAY" ? userDefinedTypeName : dataType),
+                DbType = mappedType,
                 IsOutput = isOutput,
                 IsNullable = true,
                 Order = ordinal,
                 UserDefinedTypeName = normalizedTypeName,
-                UserDefinedTypeSchema = normalizedTypeSchema
+                UserDefinedTypeSchema = normalizedTypeSchema,
+                IsCollection = dataType == "ARRAY"
             });
         }
 
