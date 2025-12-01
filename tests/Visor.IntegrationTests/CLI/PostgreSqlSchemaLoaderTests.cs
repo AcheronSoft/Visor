@@ -1,4 +1,5 @@
 using Visor.CLI.Providers.PostgreSql;
+using Xunit;
 
 namespace Visor.IntegrationTests.CLI;
 

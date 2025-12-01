@@ -1,4 +1,5 @@
 ﻿using Npgsql;
+using Visor.Abstractions.Enums;
 using Visor.CLI.Metadata;
 using Visor.CLI.Services;
 

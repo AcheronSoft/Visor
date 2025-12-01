@@ -1,4 +1,5 @@
 using Visor.CLI.Providers.SqlServer;
+using Xunit;
 
 namespace Visor.IntegrationTests.CLI;
 
