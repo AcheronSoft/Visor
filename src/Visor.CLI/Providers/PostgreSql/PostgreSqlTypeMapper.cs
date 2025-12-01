@@ -2,7 +2,7 @@
 
 namespace Visor.CLI.Providers.PostgreSql;
 
-internal static class PostgreSqlTypeMapper
+public static class PostgreSqlTypeMapper
 {
     // Maps PostgreSQL data types to VisorDbType
     public static VisorDbType Map(string pgTypeName)
@@ -57,40 +57,5 @@ internal static class PostgreSqlTypeMapper
 
             _                            => VisorDbType.Object
         };
-    }
-
-    public static string GetCSharpType(VisorDbType dbType, bool isNullable)
-    {
-        // Reuse the logic from SqlServerTypeMapper or share a common utility.
-        // Since we are inside a specific provider folder but mapping TO C#,
-        // strictly speaking, this logic is provider-agnostic once we have VisorDbType.
-        // However, to keep providers independent as requested, we duplicate the trivial switch.
-
-        var type = dbType switch
-        {
-            VisorDbType.Int64    => "long",
-            VisorDbType.Int32    => "int",
-            VisorDbType.Int16    => "short",
-            VisorDbType.Byte     => "byte",
-            VisorDbType.Boolean  => "bool",
-            VisorDbType.Decimal  => "decimal",
-            VisorDbType.Double   => "double",
-            VisorDbType.Single   => "float",
-            VisorDbType.DateTime => "DateTime",
-            VisorDbType.Date     => "DateTime",
-            VisorDbType.Time     => "TimeSpan",
-            VisorDbType.DateTimeOffset => "DateTimeOffset",
-            VisorDbType.Guid     => "Guid",
-            VisorDbType.Binary   => "byte[]",
-            VisorDbType.String   => "string",
-            _                    => "object"
-        };
-
-        if (isNullable && type != "string" && type != "byte[]" && type != "object")
-        {
-            return type + "?";
-        }
-
-        return type;
     }
 }

@@ -55,7 +55,7 @@ public class VisorRootCommand : RootCommand
             {
                 userInterface.MarkupLine($"[red]Critical Error:[/] {exception.Message}");
                 // In non-interactive mode, this ensures the CI fails if something goes wrong.
-                Environment.ExitCode = 1;
+                Environment.Exit(1);
             }
 
         }, providerOption, connectionOption, outputOption, namespaceOption);

@@ -28,6 +28,7 @@
     <ProjectReference Include="..\..\src\Visor.Generators\Visor.Generators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
 
     <ProjectReference Include="..\..\src\Visor.PostgreSql\Visor.PostgreSql.csproj" />
+    <ProjectReference Include="..\..\src\Visor.CLI\Visor.CLI.csproj" />
   </ItemGroup>
 
   <ItemGroup>

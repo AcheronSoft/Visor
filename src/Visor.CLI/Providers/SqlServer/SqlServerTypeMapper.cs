@@ -53,35 +53,4 @@ internal static class SqlServerTypeMapper
             _                  => VisorDbType.Object
         };
     }
-
-    // Helper to determine C# CLR type string for CodeEmitter
-    public static string GetCSharpType(VisorDbType dbType, bool isNullable)
-    {
-        var type = dbType switch
-        {
-            VisorDbType.Int64    => "long",
-            VisorDbType.Int32    => "int",
-            VisorDbType.Int16    => "short",
-            VisorDbType.Byte     => "byte",
-            VisorDbType.Boolean  => "bool",
-            VisorDbType.Decimal  => "decimal",
-            VisorDbType.Double   => "double",
-            VisorDbType.Single   => "float", // Correct mapping: System.Single -> float
-            VisorDbType.DateTime => "DateTime",
-            VisorDbType.Date     => "DateTime",
-            VisorDbType.Time     => "TimeSpan",
-            VisorDbType.DateTimeOffset => "DateTimeOffset",
-            VisorDbType.Guid     => "Guid",
-            VisorDbType.Binary   => "byte[]",
-            VisorDbType.String   => "string",
-            _                    => "object"
-        };
-
-        if (isNullable && type != "string" && type != "byte[]" && type != "object")
-        {
-            return type + "?";
-        }
-
-        return type;
-    }
 }

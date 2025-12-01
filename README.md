@@ -292,7 +292,7 @@ We are actively bridging the gap between raw speed and developer experience.
 - [ ] **Observability:** Advanced OpenTelemetry Tracing, Metrics & Logging.
 - [ ] **More Providers:** Oracle, MySQL, CosmosDB, MongoDB.
 - [ ] **Configuration:** Json-based Database configuration support.
-- [ ] **CLI Tool:** Database-First scaffolding.
+- [x] **CLI Tool:** Database-First scaffolding. (See [README-CLI.md](README-CLI.md))
 
 ---
 
