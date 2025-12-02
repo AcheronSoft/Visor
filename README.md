@@ -287,13 +287,20 @@ We are actively bridging the gap between raw speed and developer experience.
 - [x] **Core Features:** MSSQL & PostgreSQL Support, TVP Streaming, Transactions.
 - [x] **Complex Mapping:** Output Parameters, Return Values, Composite Types.
 - [x] **NuGet Packaging:** automated CI/CD flow.
+- [x] **CLI Tool:** Database-First scaffolding. (See [README-CLI.md](README-CLI.md))
 - [ ] **Railway Oriented Programming:** Native support for `Result<T>` and functional flows.
 - [ ] **Resiliency:** Retry policies & Circuit Breaker integration.
 - [ ] **Command Config:** Per-command Timeouts & Behaviors.
 - [ ] **Observability:** Advanced OpenTelemetry Tracing, Metrics & Logging.
 - [ ] **More Providers:** Oracle, MySQL, CosmosDB, MongoDB.
 - [ ] **Configuration:** Json-based Database configuration support.
-- [x] **CLI Tool:** Database-First scaffolding. (See [README-CLI.md](README-CLI.md))
+
+---
+
+## Support the project
+If you find this ORM useful, you can buy me a coffee to keep my brain fueled ☕
+
+[![Buy Me A Coffee](https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png)](https://buymeacoffee.com/acheronsoft)
 
 ---
 
